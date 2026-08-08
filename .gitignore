@@ -1,0 +1,12 @@
+# Sorties d'execution
+/sorties/
+*.BPA.json
+*.BPA.log
+*.BPA.trx
+
+# Binaire Tabular Editor : jamais versionne
+/TabularEditor/
+TabularEditor.exe
+
+# Fixtures lourdes ou sensibles : decommenter si necessaire
+# /tests/fixtures/**/Model.bim

@@ -1,0 +1,71 @@
+# Journal des décisions
+
+Une entrée par choix structurant. Format : décision, motif, alternative écartée.
+À compléter à chaque session — c'est ce qui évite de refaire les mêmes débats.
+
+---
+
+## 001 — Générer le `.bim` plutôt que d'exécuter un script C# dans Tabular Editor
+
+**Décision.** Tabular Editor 2 n'est appelé que pour l'option `-B`, qui sérialise le
+modèle en TMSL. Toute l'extraction se fait ensuite en PowerShell sur ce fichier.
+
+**Motif.** L'API scriptable de TE2 change entre versions, et `MetadataObject` est
+`internal` en 2.28 — un script C# passant par TOM ne compile pas. `-B` ne dépend
+d'aucune API scriptable et le `.bim` est exhaustif par construction.
+
+**Alternative écartée.** Script C# via le wrapper TOMWrapper : fonctionne, mais
+casse chez un collègue dont la version de TE2 diffère.
+
+**Effet de bord bénéfique.** Les deux étapes sont découplées : un poste peut produire
+le `.bim`, un autre les CSV (paramètre `-BimPath`).
+
+---
+
+## 002 — ADOMD.NET plutôt que le provider OLE DB MSOLAP
+
+**Décision.** Les DMV sont interrogées via `Microsoft.AnalysisServices.AdomdClient.dll`,
+livrée avec Power BI Desktop. ADODB/MSOLAP ne sert plus que de repli.
+
+**Motif.** Le provider MSOLAP n'est pas enregistré sur le poste de référence, et son
+installation demande des droits administrateur.
+
+**Statut.** NON TESTÉ — à confirmer sur le poste.
+
+---
+
+## 003 — Graphe de dépendances plutôt que recherche textuelle
+
+**Décision.** `24_Champs_NonUtilises.csv` s'appuie sur `DISCOVER_CALC_DEPENDENCY`,
+avec propagation transitive de l'usage depuis deux types de racines : les champs
+posés dans les visuels et les expressions RLS.
+
+**Motif.** La question utile est « atteignable depuis un visuel », pas « cité quelque
+part ». Une recherche `Contains("[Nom]")` ignore la qualification par table, compte
+les commentaires et les littéraux, et classe comme utilisée une mesure appelée
+uniquement par une chaîne elle-même morte.
+
+**Repli.** Hors connexion, analyse textuelle après retrait des commentaires et des
+chaînes, alimentant le même graphe. Verdicts marqués comme à confirmer.
+
+---
+
+## 004 — Refuser un `.pbix` deviné dont le nom ne correspond pas au modèle
+
+**Décision.** Le repli par fichiers récents exige que le nom du `.pbix` corresponde au
+nom du modèle chargé. Un `-PbixPath` explicite reste prioritaire.
+
+**Motif.** Un run réel a lu la couche rapport d'un tout autre rapport que le modèle
+extrait, sans aucun signal d'erreur. Une sortie silencieusement fausse est pire
+qu'une sortie absente.
+
+---
+
+## 005 — JSON normalisé distinct du `.bim`
+
+**Décision.** Produire `<Rapport>.model.json` en plus du `.bim`, avec suppression du
+bruit interne, expressions reconstituées en chaînes et valeurs par défaut explicitées.
+
+**Motif.** Le `.bim` brut est mal exploité par les LLM : environ 75 % de son volume
+est sans valeur sémantique, et l'omission des valeurs par défaut conduit les agents
+à halluciner le schéma des relations.
