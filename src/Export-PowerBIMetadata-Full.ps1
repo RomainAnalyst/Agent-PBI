@@ -30,7 +30,8 @@ param(
 
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 $port = $null; $database = $null; $conn = $null; $calcDep = $null
-$asCtx = $null   # contexte de requete Analysis Services (ADOMD ou ADODB)
+$asCtx = $null       # contexte de requete Analysis Services (ADOMD ou ADODB)
+$ProduitPBI = ""     # "Power BI Desktop" ou "Power BI Desktop for Report Server"
 
 # ------------------------------------------------------------------
 # Acces aux DMV. Deux backends, essayes dans cet ordre :
@@ -40,9 +41,14 @@ $asCtx = $null   # contexte de requete Analysis Services (ADOMD ou ADODB)
 # ------------------------------------------------------------------
 function Open-AsContext { param([string]$Port)
 
+    # NON TESTE : le dossier d'installation "...Desktop RS\bin" pour Power BI
+    # Desktop for Report Server vient de la documentation Microsoft, aucun
+    # poste Report Server n'etait disponible pour le confirmer sur ce depot.
     $dirs = @(
         "$env:ProgramFiles\Microsoft Power BI Desktop\bin",
         "${env:ProgramFiles(x86)}\Microsoft Power BI Desktop\bin",
+        "$env:ProgramFiles\Microsoft Power BI Desktop RS\bin",
+        "${env:ProgramFiles(x86)}\Microsoft Power BI Desktop RS\bin",
         "$env:ProgramFiles\Microsoft.NET\ADOMD.NET",
         "${env:ProgramFiles(x86)}\Microsoft.NET\ADOMD.NET"
     ) | Where-Object { $_ -and (Test-Path $_) }
@@ -176,9 +182,25 @@ if (-not $BimPath) {
     } catch { }
 
     # --- 1b. Port de l'instance Analysis Services locale ---
-    $wsRoot   = Join-Path $env:LOCALAPPDATA "Microsoft\Power BI Desktop\AnalysisServicesWorkspaces"
-    $portFile = Get-ChildItem -Path $wsRoot -Filter "msmdsrv.port.txt" -Recurse -ErrorAction SilentlyContinue |
-                Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    # Le dossier de travail differe selon le produit. Les deux sont balayes ;
+    # celui dont le fichier de port est le plus recent determine le produit
+    # detecte. NON TESTE : le chemin Report Server vient de la documentation
+    # Microsoft (dossier local "Power BI Desktop SSRS"), aucun poste Report
+    # Server n'etait disponible pour le confirmer sur ce depot.
+    $wsRoots = [ordered]@{
+        'Power BI Desktop'                    = Join-Path $env:LOCALAPPDATA "Microsoft\Power BI Desktop\AnalysisServicesWorkspaces"
+        'Power BI Desktop for Report Server'  = Join-Path $env:LOCALAPPDATA "Microsoft\Power BI Desktop SSRS\AnalysisServicesWorkspaces"
+    }
+    $portFile = $null
+    foreach ($kv in $wsRoots.GetEnumerator()) {
+        if (-not (Test-Path $kv.Value)) { continue }
+        $pf = Get-ChildItem -Path $kv.Value -Filter "msmdsrv.port.txt" -Recurse -ErrorAction SilentlyContinue |
+              Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($pf -and (-not $portFile -or $pf.LastWriteTime -gt $portFile.LastWriteTime)) {
+            $portFile   = $pf
+            $ProduitPBI = $kv.Key
+        }
+    }
     if ($portFile) { $port = ((Get-Content $portFile.FullName -Raw) -replace '\D','') }
     if (-not $port) {
         $pbi = Get-Process msmdsrv -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -186,12 +208,14 @@ if (-not $BimPath) {
             $line = netstat -ano | Where-Object { $_ -match "LISTENING\s+$($pbi.Id)\s*$" } | Select-Object -First 1
             if ($line -and $line -match '127\.0\.0\.1:(\d+)') { $port = $Matches[1] }
         }
+        if ($port) { $ProduitPBI = "Indetermine (detecte via processus msmdsrv)" }
     }
     if (-not $port) {
         Write-Host "ERREUR : Power BI Desktop n'est pas ouvert (ou port introuvable)." -ForegroundColor Red
         return
     }
     Write-Host "-> Port detecte : $port" -ForegroundColor Green
+    Write-Host "-> Produit detecte : $ProduitPBI" -ForegroundColor Green
 
     # --- 1c. Nom de la base ---
     $asCtx = Open-AsContext $port
@@ -310,6 +334,7 @@ Write-Host "   $($tables.Count) tables lues" -ForegroundColor DarkGray
 
 # --- 00 Modele ---------------------------------------------------
 $props = [ordered]@{
+    'Produit'                         = if ($ProduitPBI) { $ProduitPBI } else { 'Indetermine (.bim fourni directement)' }
     'Database'                        = P $bim 'name'
     'CompatibilityLevel'              = P $bim 'compatibilityLevel'
     'Culture'                         = P $mdl 'culture'

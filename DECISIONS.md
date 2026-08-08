@@ -69,3 +69,23 @@ bruit interne, expressions reconstituées en chaînes et valeurs par défaut exp
 **Motif.** Le `.bim` brut est mal exploité par les LLM : environ 75 % de son volume
 est sans valeur sémantique, et l'omission des valeurs par défaut conduit les agents
 à halluciner le schéma des relations.
+
+---
+
+## 006 — Détection du produit par le workspace qui répond, pas par un choix explicite
+
+**Décision.** `Open-AsContext` et la recherche du port balaient désormais les deux
+dossiers de workspace (`Power BI Desktop` et `Power BI Desktop SSRS`), ainsi que
+les deux dossiers d'installation (`...Desktop\bin` et `...Desktop RS\bin`) pour la
+DLL ADOMD. Celui dont le `msmdsrv.port.txt` est le plus récent détermine le produit
+détecté, écrit en console et dans la colonne `Produit` de `00_Modele.csv`.
+
+**Motif.** Un collègue peut avoir les deux produits installés en parallèle (voir
+`docs/COMPATIBILITE.md`). Choisir un chemin en dur aurait forcé un paramètre
+supplémentaire ; balayer les deux et garder le plus récent évite toute question à
+l'utilisateur dans le cas courant où un seul produit est ouvert.
+
+**Statut.** NON TESTÉ — aucun poste Power BI Desktop for Report Server n'était
+disponible pour exécuter ce chemin. Le chemin de workspace et le dossier
+d'installation `...Desktop RS\bin` viennent de la documentation Microsoft, pas
+d'une constatation sur poste. À confirmer dès qu'un tel poste est accessible.
