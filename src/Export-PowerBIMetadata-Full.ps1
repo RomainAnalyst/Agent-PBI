@@ -183,14 +183,16 @@ if (-not $BimPath) {
             $TabularEditorPath = $env:TABULAR_EDITOR_PATH
         }
         if (-not $TabularEditorPath) {
+            $RepoRoot = Split-Path $PSScriptRoot -Parent
             $candidates = @(
+                (Join-Path $RepoRoot "TabularEditor\TabularEditor.exe"),
+                (Join-Path $PSScriptRoot "TabularEditor\TabularEditor.exe"),
+                (Join-Path $PSScriptRoot "TabularEditor.exe"),
                 "C:\Program Files (x86)\Tabular Editor\TabularEditor.exe",
                 "C:\Program Files\Tabular Editor\TabularEditor.exe",
                 (Join-Path $env:LOCALAPPDATA "Programs\Tabular Editor\TabularEditor.exe"),
                 (Join-Path $env:USERPROFILE "TabularEditor\TabularEditor.exe"),
-                (Join-Path $env:USERPROFILE "Downloads\TabularEditor\TabularEditor.exe"),
-                (Join-Path $PSScriptRoot "TabularEditor\TabularEditor.exe"),
-                (Join-Path $PSScriptRoot "TabularEditor.exe")
+                (Join-Path $env:USERPROFILE "Downloads\TabularEditor\TabularEditor.exe")
             )
             $TabularEditorPath = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
         }

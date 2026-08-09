@@ -18,5 +18,7 @@ git add .
 git commit -m "Point de départ"
 ```
 
-Le binaire Tabular Editor n'est pas versionné : extraire `TabularEditor.2.x.x.zip`
-dans un dossier `TabularEditor\` à la racine.
+Tabular Editor 2 (version portable, licence MIT) est versionné dans `TabularEditor\`
+à la racine : aucun téléchargement ni extraction requis, le script le trouve
+automatiquement. Pour le mettre à jour, remplacer le contenu de ce dossier par
+celui d'un nouveau `TabularEditor.2.x.x.zip`.

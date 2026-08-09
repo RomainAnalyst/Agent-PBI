@@ -151,3 +151,32 @@ bloquantes, le script continuait et affichait un faux succès — risque de
 **Statut.** VÉRIFIÉ — reproduit isolément et corrigé ; export réel relancé sans
 aucune erreur résiduelle (hors l'`UnauthorizedAccessException` de la décision
 007, elle-même interceptée et sans effet).
+
+---
+
+## 009 — Versionner Tabular Editor 2 portable dans le dépôt
+
+**Décision.** Le contenu du zip portable (`TabularEditor.exe` et ses DLL, dossier
+`runtimes\`) est copié dans `TabularEditor\` à la racine du dépôt et n'est plus
+exclu par `.gitignore`. `Export-PowerBIMetadata-Full.ps1` cherche désormais ce
+chemin en premier, avant les installations Program Files et le profil utilisateur.
+
+**Motif.** Un collègue sans droits administrateur ne doit rien télécharger pour
+lancer l'outil. Tabular Editor 2 est distribué sous licence MIT (fichier
+`license-TabularEditor.txt` inclus), qui autorise la redistribution. Fixer un
+chemin garanti dans le dépôt évite aussi qu'un poste utilise par erreur une
+version installée différente de celle validée ici.
+
+**Alternative écartée.** Garder le binaire hors du dépôt avec une instruction
+« extraire le zip ici » (approche précédente, documentée dans `LISEZ-MOI.md`) :
+fonctionne, mais réintroduit une étape manuelle et une dépendance réseau que
+les contraintes du projet cherchent justement à éliminer.
+
+**Effet de bord.** Le dépôt grossit d'environ 18 Mo. Les fichiers copiés
+excluent le contenu parasite trouvé dans le dossier source d'origine
+(certificats WindowsLAPS, notes de placeholder) qui n'a aucun rapport avec
+Tabular Editor.
+
+**Statut.** NON TESTÉ — le nouvel ordre de résolution de chemin n'a pas encore
+été exécuté de bout en bout ; à confirmer via `tests\Invoke-Tests.ps1` puis un
+run réel avec Power BI ouvert.
