@@ -44,17 +44,47 @@ function Open-AsContext { param([string]$Port)
     # NON TESTE : le dossier d'installation "...Desktop RS\bin" pour Power BI
     # Desktop for Report Server vient de la documentation Microsoft, aucun
     # poste Report Server n'etait disponible pour le confirmer sur ce depot.
-    $dirs = @(
+    $dirs = New-Object System.Collections.Generic.List[string]
+
+    # Source la plus fiable, valable pour les 3 variantes (classique, Report
+    # Server, Microsoft Store) : le dossier d'ou tourne reellement le process.
+    # Utile en particulier pour la variante Store, dont le dossier
+    # WindowsApps\Microsoft.MicrosoftPowerBIDesktop_<version> n'est PAS
+    # enumerable par un utilisateur standard (Acces refuse constate),
+    # donc injoignable par un motif avec caractere generique. VERIFIE.
+    $running = Get-Process msmdsrv, PBIDesktop -ErrorAction SilentlyContinue |
+               Where-Object { $_.Path } | Select-Object -First 1
+    if ($running) { $dirs.Add((Split-Path $running.Path -Parent)) }
+
+    foreach ($d in @(
         "$env:ProgramFiles\Microsoft Power BI Desktop\bin",
         "${env:ProgramFiles(x86)}\Microsoft Power BI Desktop\bin",
         "$env:ProgramFiles\Microsoft Power BI Desktop RS\bin",
         "${env:ProgramFiles(x86)}\Microsoft Power BI Desktop RS\bin",
         "$env:ProgramFiles\Microsoft.NET\ADOMD.NET",
         "${env:ProgramFiles(x86)}\Microsoft.NET\ADOMD.NET"
-    ) | Where-Object { $_ -and (Test-Path $_) }
+    )) {
+        if ($d -and (Test-Path $d)) { $dirs.Add($d) }
+    }
+
+    # Secours best-effort : fonctionne seulement si la GPO du poste autorise
+    # l'enumeration de WindowsApps (pas le cas constate ici). NON TESTE comme
+    # source effective -- $running ci-dessus suffit deja quand Power BI tourne.
+    try {
+        Get-ChildItem "$env:ProgramFiles\WindowsApps" -Directory -Filter "Microsoft.MicrosoftPowerBIDesktop_*" -ErrorAction Stop |
+            ForEach-Object {
+                $b = Join-Path $_.FullName "bin"
+                if (Test-Path $b) { $dirs.Add($b) }
+            }
+    } catch { }
 
     foreach ($d in $dirs) {
-        $dll = Get-ChildItem $d -Filter "Microsoft.AnalysisServices.AdomdClient.dll" -Recurse -ErrorAction SilentlyContinue |
+        # Le nom du fichier a change selon les versions : "Microsoft.PowerBI.AdomdClient.dll"
+        # dans les builds recentes (dont la variante Microsoft Store), au lieu de
+        # "Microsoft.AnalysisServices.AdomdClient.dll". Le namespace des types .NET a
+        # l'interieur, lui, reste "Microsoft.AnalysisServices.AdomdClient.*" dans les
+        # deux cas -- VERIFIE par inspection de l'assembly. On cherche donc les deux noms.
+        $dll = Get-ChildItem $d -Include "Microsoft.AnalysisServices.AdomdClient.dll", "Microsoft.PowerBI.AdomdClient.dll" -Recurse -ErrorAction SilentlyContinue |
                Sort-Object { $_.VersionInfo.FileVersion } -Descending | Select-Object -First 1
         if (-not $dll) { continue }
         try {
@@ -208,7 +238,16 @@ if (-not $BimPath) {
             $line = netstat -ano | Where-Object { $_ -match "LISTENING\s+$($pbi.Id)\s*$" } | Select-Object -First 1
             if ($line -and $line -match '127\.0\.0\.1:(\d+)') { $port = $Matches[1] }
         }
-        if ($port) { $ProduitPBI = "Indetermine (detecte via processus msmdsrv)" }
+        if ($port) {
+            # Variante Microsoft Store : le dossier de travail est versionne
+            # (WindowsApps\Microsoft.MicrosoftPowerBIDesktop_<version>\bin) et
+            # n'apparait donc pas dans $wsRoots ci-dessus. VERIFIE sur poste Store.
+            $ProduitPBI = if ($pbi.Path -match '\\WindowsApps\\Microsoft\.MicrosoftPowerBIDesktop_') {
+                'Power BI Desktop (Microsoft Store)'
+            } else {
+                "Indetermine (detecte via processus msmdsrv)"
+            }
+        }
     }
     if (-not $port) {
         Write-Host "ERREUR : Power BI Desktop n'est pas ouvert (ou port introuvable)." -ForegroundColor Red
@@ -315,10 +354,16 @@ function E { param($v)
     return [string]$v
 }
 function Save { param([string]$Name, $Rows)
-    if ($null -eq $Rows -or @($Rows).Count -eq 0) { return $false }
+    # PIEGE PS 5.1 : "@($Rows)" sur une List[object] VIDE declenche une
+    # ArgumentException dans le binder dynamique (PSToObjectArrayBinder).
+    # VERIFIE (reproduit avec un rapport sans filtre -> $rowFiltr vide).
+    # Contournement : compter via .Count directement (sans @()) et laisser
+    # Export-Csv consommer $Rows par le pipeline plutot que par cast @().
+    $n = if ($null -eq $Rows) { 0 } elseif ($Rows -is [System.Collections.ICollection]) { $Rows.Count } else { 1 }
+    if ($n -eq 0) { return $false }
     $p = Join-Path $OutputFolder $Name
-    @($Rows) | Export-Csv -Path $p -NoTypeInformation -Delimiter ';' -Encoding UTF8
-    Write-Host ("   OK  {0,-36} {1,5} lignes" -f $Name, @($Rows).Count) -ForegroundColor DarkGray
+    $Rows | Export-Csv -Path $p -NoTypeInformation -Delimiter ';' -Encoding UTF8
+    Write-Host ("   OK  {0,-36} {1,5} lignes" -f $Name, $n) -ForegroundColor DarkGray
     return $true
 }
 
