@@ -12,6 +12,9 @@
     Si fourni, l'etape 1 est sautee : les CSV sont regeneres depuis un .bim
     existant. Power BI Desktop n'a alors pas besoin d'etre ouvert.
 
+.PARAMETER SansOuverture
+    N'ouvre pas l'explorateur Windows sur le dossier de sortie a la fin.
+
 .EXEMPLES
     powershell -ExecutionPolicy Bypass -File .\Export-PowerBIMetadata-Full.ps1
     powershell -ExecutionPolicy Bypass -File .\Export-PowerBIMetadata-Full.ps1 -BimPath "C:\...\Model.bim"
@@ -25,7 +28,8 @@ param(
     [string]$PbixPath          = "",
     [string]$PbipFolder        = "",
     [switch]$SkipReport,
-    [switch]$SkipDmv
+    [switch]$SkipDmv,
+    [switch]$SansOuverture
 )
 
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -844,9 +848,10 @@ function Read-JsonSafe { param([string]$Text)
     }
 }
 
-# Champ porte par un filtre : renvoie "Table.Colonne" ou "" si illisible.
-function Get-FilterField { param($f)
-    $e = P $f 'expression' $null
+# Champ reference par une expression Column/Measure/HierarchyLevel (forme
+# commune aux filtres et aux liaisons dynamiques de titre) : renvoie
+# "Table.Champ", ou "" si illisible.
+function Get-ExprField { param($e)
     foreach ($kind in @('Column','Measure','HierarchyLevel')) {
         $o = P $e $kind $null
         if ($null -eq $o) { continue }
@@ -856,6 +861,8 @@ function Get-FilterField { param($f)
     }
     return ""
 }
+# Champ porte par un filtre : renvoie "Table.Colonne" ou "" si illisible.
+function Get-FilterField { param($f) return (Get-ExprField (P $f 'expression' $null)) }
 
 # Litteral Power BI : "'Mon titre'" -> "Mon titre"
 function Get-Literal { param($o)
@@ -870,6 +877,16 @@ function Normalize-QueryRef { param([string]$q)
     if ($q -match '^[A-Za-z]+\((?<i>.+)\)$') { return $Matches['i'] }
     return $q
 }
+
+# Pre-declarees pour que le Resume final puisse s'y referer meme si la couche
+# rapport est absente, ignoree (-SkipReport) ou introuvable.
+$rowPages  = @()
+$rowVis    = @()
+$rowBind   = @()
+$rowFiltr  = @()
+$rowUnused = @()
+$usedRefs  = New-Object System.Collections.Generic.HashSet[string]
+$srcDep    = ""
 
 if (-not $SkipReport) {
 
@@ -989,8 +1006,14 @@ if (-not $SkipReport) {
 
         # Filtres au niveau rapport
         foreach ($f in @(Read-JsonSafe (P $layout 'filters'))) {
+            $champFiltre = Get-FilterField $f
+            # Un champ filtrant (notamment une mesure) est un usage reel, meme
+            # sans etre pose dans un visuel : sinon 24_Champs_NonUtilises.csv le
+            # classe a tort comme supprimable (angle mort documente dans
+            # docs/PROMPTS.md).
+            if ($champFiltre) { [void]$usedRefs.Add($champFiltre) }
             $rowFiltr.Add([pscustomobject]@{ Niveau='Rapport'; Page=''; Visuel=''
-                Champ = (Get-FilterField $f)
+                Champ = $champFiltre
                 Type  = P $f 'type'; Etat = P $f 'howCreated' })
         }
 
@@ -1012,8 +1035,10 @@ if (-not $SkipReport) {
             })
 
             foreach ($f in @(Read-JsonSafe (P $s 'filters'))) {
+                $champFiltre = Get-FilterField $f
+                if ($champFiltre) { [void]$usedRefs.Add($champFiltre) }
                 $rowFiltr.Add([pscustomobject]@{ Niveau='Page'; Page=$pageNom; Visuel=''
-                    Champ = (Get-FilterField $f)
+                    Champ = $champFiltre
                     Type  = P $f 'type'; Etat = P $f 'howCreated' })
             }
 
@@ -1026,7 +1051,17 @@ if (-not $SkipReport) {
                     $x = P $pos 'x'; $y = P $pos 'y'; $z = P $pos 'z'; $w = P $pos 'width'; $h = P $pos 'height'
                     $titre = ""
                     $tObj  = @(P (P $vis 'objects' $null) 'title' @())
-                    if ($tObj.Count -gt 0) { $titre = Get-Literal (P $tObj[0] 'properties' $null).text }
+                    if ($tObj.Count -gt 0) {
+                        $tTxt = (P $tObj[0] 'properties' $null).text
+                        $titre = Get-Literal $tTxt
+                        if (-not $titre) {
+                            # Titre dynamique (lie a une mesure/colonne plutot qu'a un
+                            # texte fixe) : le champ ne remonte dans aucune projection,
+                            # donc sans ceci il serait vu a tort comme non utilise.
+                            $champTitre = Get-ExprField (P $tTxt 'expr' $null)
+                            if ($champTitre) { [void]$usedRefs.Add($champTitre); $titre = "(titre dynamique : $champTitre)" }
+                        }
+                    }
                     $qs = P (P $vis 'query' $null) 'queryState' $null
                 } else {
                     $cfg   = Read-JsonSafe (P $vc 'config')
@@ -1036,8 +1071,22 @@ if (-not $SkipReport) {
                     $vtype = if ($sv) { P $sv 'visualType' } elseif ($grp) { 'group' } else { '' }
                     $x = P $vc 'x'; $y = P $vc 'y'; $z = P $vc 'z'; $w = P $vc 'width'; $h = P $vc 'height'
                     $titre = ""
-                    $tObj = @(P (P (P $sv 'vcObjects' $null) 'title' @()) )
-                    if ($tObj.Count -gt 0) { $titre = Get-Literal (P $tObj[0] 'properties' $null).text }
+                    # BUG PREEXISTANT CORRIGE : un appel P(...) surnumeraire ici
+                    # enveloppait le tableau de titre dans un appel P supplementaire,
+                    # qui retombait systematiquement sur "" -- le titre (fixe ou
+                    # dynamique) n'etait donc jamais lu sur ce chemin (.pbix /
+                    # report.json classique). VERIFIE sur fixture synthetique.
+                    $tObj = @(P (P $sv 'vcObjects' $null) 'title' @())
+                    if ($tObj.Count -gt 0) {
+                        $tTxt = (P $tObj[0] 'properties' $null).text
+                        $titre = Get-Literal $tTxt
+                        if (-not $titre) {
+                            # Titre dynamique : voir commentaire equivalent dans la
+                            # branche PBIR ci-dessus.
+                            $champTitre = Get-ExprField (P $tTxt 'expr' $null)
+                            if ($champTitre) { [void]$usedRefs.Add($champTitre); $titre = "(titre dynamique : $champTitre)" }
+                        }
+                    }
                     if (-not $titre -and $grp) { $titre = P $grp 'displayName' }
                     $qs = P $sv 'projections' $null
                 }
@@ -1072,8 +1121,10 @@ if (-not $SkipReport) {
                 })
 
                 foreach ($f in @(Read-JsonSafe (P $vc 'filters'))) {
+                    $champFiltre = Get-FilterField $f
+                    if ($champFiltre) { [void]$usedRefs.Add($champFiltre) }
                     $rowFiltr.Add([pscustomobject]@{ Niveau='Visuel'; Page=$pageNom; Visuel=$(if ($titre) { $titre } else { $vid })
-                        Champ = (Get-FilterField $f)
+                        Champ = $champFiltre
                         Type  = P $f 'type'; Etat = P $f 'howCreated' })
                 }
             }
@@ -1271,4 +1322,53 @@ Write-Host $OutputFolder -ForegroundColor Yellow
 $files | ForEach-Object { "   {0,-40} {1,8:N0} Ko" -f $_.Name, ($_.Length / 1KB) }
 if ($vides.Count -gt 0) {
     Write-Host "`nSections absentes du modele (aucun fichier) : $($vides -join ', ')" -ForegroundColor DarkGray
+}
+
+# --- Resume.md : lecture rapide sans ouvrir les CSV un a un -----
+$verdicts = [ordered]@{ 'Supprimable' = 0; 'Chaine morte - a verifier' = 0; 'Intermediaire - conserver' = 0 }
+foreach ($u in $rowUnused) { if ($verdicts.Contains($u.Verdict)) { $verdicts[$u.Verdict]++ } }
+
+$resume = New-Object System.Text.StringBuilder
+[void]$resume.AppendLine("# Resume de l'export - $ReportName")
+[void]$resume.AppendLine("")
+[void]$resume.AppendLine("Genere le $(Get-Date -Format 'yyyy-MM-dd HH:mm') en $([math]::Round($sw.Elapsed.TotalSeconds,1))s.")
+[void]$resume.AppendLine("")
+[void]$resume.AppendLine("## Modele")
+[void]$resume.AppendLine("- Produit : $($props['Produit'])")
+[void]$resume.AppendLine("- Tables : $($props['NbTables'])")
+[void]$resume.AppendLine("- Colonnes : $($props['NbColonnes'])")
+[void]$resume.AppendLine("- Mesures : $($props['NbMesures'])")
+[void]$resume.AppendLine("- Relations : $($props['NbRelations'])")
+[void]$resume.AppendLine("- Roles RLS : $($props['NbRoles'])")
+if ($rowPages.Count -gt 0 -or $rowVis.Count -gt 0) {
+    [void]$resume.AppendLine("")
+    [void]$resume.AppendLine("## Rapport")
+    [void]$resume.AppendLine("- Pages : $($rowPages.Count)")
+    [void]$resume.AppendLine("- Visuels : $($rowVis.Count)")
+    [void]$resume.AppendLine("- Champs utilises dans les visuels, titres et filtres : $($usedRefs.Count)")
+}
+if ($rowUnused.Count -gt 0) {
+    [void]$resume.AppendLine("")
+    [void]$resume.AppendLine("## Pistes de nettoyage (voir 24_Champs_NonUtilises.csv)")
+    [void]$resume.AppendLine("- Supprimable : $($verdicts['Supprimable'])")
+    [void]$resume.AppendLine("- Chaine morte - a verifier : $($verdicts['Chaine morte - a verifier'])")
+    [void]$resume.AppendLine("- Intermediaire - a conserver : $($verdicts['Intermediaire - conserver'])")
+    [void]$resume.AppendLine("- Fiabilite des verdicts : $srcDep$(if ($srcDep -eq 'Analyse textuelle') { ' (indicatif, DMV indisponible lors de cet export)' })")
+}
+if ($vides.Count -gt 0) {
+    [void]$resume.AppendLine("")
+    [void]$resume.AppendLine("## Sections absentes du modele")
+    [void]$resume.AppendLine("- $($vides -join ', ')")
+}
+[void]$resume.AppendLine("")
+[void]$resume.AppendLine("## Fichiers produits ($($files.Count))")
+foreach ($f in $files) { [void]$resume.AppendLine("- $($f.Name) ($([math]::Round($f.Length / 1KB, 1)) Ko)") }
+
+$resumePath = Join-Path $OutputFolder "Resume.md"
+[System.IO.File]::WriteAllText($resumePath, $resume.ToString(), (New-Object System.Text.UTF8Encoding($false)))
+Write-Host "`nResume : Resume.md" -ForegroundColor Yellow
+
+# --- Ouverture automatique du dossier ----------------------------
+if (-not $SansOuverture) {
+    try { Start-Process -FilePath "explorer.exe" -ArgumentList "`"$OutputFolder`"" | Out-Null } catch { }
 }

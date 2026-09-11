@@ -118,3 +118,7 @@ Chaque ligne est un test qu'on ne peut pas écrire aujourd'hui :
 - [ ] Dossier `.pbip` au format `report.json` classique
 - [ ] Dossier `.pbip` au format PBIR
 - [ ] `.bim` contenant un groupe de calcul et des rôles RLS
+- [ ] `.pbix`/`.pbip` réel contenant un titre de visuel dynamique (lié à une
+      mesure) et un filtre de visuel portant sur une mesure — la correction de
+      `DECISIONS.md` #011 n'a été vérifiée que sur fixtures synthétiques
+      écrites à la main, pas sur un rapport capturé

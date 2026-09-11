@@ -26,10 +26,15 @@ Les fichiers fournis font autorité. Contraintes de réponse :
 
 Elles conditionnent la fiabilité de plusieurs prompts ci-dessous :
 
-- `22_Champs_Visuels.csv` provient des `projections` du visuel. **Ne sont pas
-  couverts** : titres dynamiques, mise en forme conditionnelle, info-bulles,
-  filtres de niveau visuel exprimés en mesure. Une mesure utilisée uniquement
-  ainsi apparaîtra comme non utilisée.
+- `22_Champs_Visuels.csv` provient des `projections` du visuel : seuls les
+  champs posés dans un puits de champs y apparaissent. Les titres dynamiques
+  et les filtres (rapport/page/visuel) portant sur une mesure ou une colonne
+  n'y figurent pas non plus, mais alimentent désormais le calcul d'usage de
+  `24_Champs_NonUtilises.csv` (voir `DECISIONS.md` #011) : une mesure utilisée
+  uniquement en titre dynamique ou en filtre n'y apparaît plus comme
+  supprimable. **Reste hors périmètre** : mise en forme conditionnelle,
+  info-bulles de type « page rapport » (une page masquée utilisée comme
+  info-bulle n'est pas reliée au champ qui la déclenche).
 - Les verdicts de `24_Champs_NonUtilises.csv` sont fiables quand
   `SourceAnalyse = DMV`. En `Analyse textuelle`, ils sont indicatifs.
 - Aucun fichier ne contient de données métier, uniquement des métadonnées.

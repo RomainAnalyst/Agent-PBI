@@ -180,3 +180,80 @@ Tabular Editor.
 **Statut.** NON TESTÉ — le nouvel ordre de résolution de chemin n'a pas encore
 été exécuté de bout en bout ; à confirmer via `tests\Invoke-Tests.ps1` puis un
 run réel avec Power BI ouvert.
+
+---
+
+## 010 — Résumé lisible + ouverture automatique du dossier de sortie
+
+**Décision.** En fin d'export, le script génère `Resume.md` (produit, compteurs
+modèle/rapport, répartition des verdicts de `24_Champs_NonUtilises.csv`,
+sections absentes, liste des fichiers) puis ouvre l'explorateur Windows sur le
+dossier de sortie. Nouveau paramètre `-SansOuverture` pour désactiver
+l'ouverture (utile en exécution scriptée/automatisée).
+
+**Motif.** Objectif d'adoption : un collègue qui lance l'outil doit atterrir
+directement sur le résultat, pas chercher `Documents\PowerBI_Metadata\...` à la
+main, ni ouvrir 19 CSV pour savoir ce qu'il y a dedans.
+
+**Statut.** VÉRIFIÉ sur fixture synthétique (voir décision 011) : `Resume.md`
+généré avec les bons compteurs, ouverture testée en mode désactivé
+(`-SansOuverture`) pour ne pas perturber l'environnement de développement.
+L'ouverture elle-même (`explorer.exe`) n'a pas été déclenchée en conditions
+réelles — comportement standard de Windows, risque jugé négligeable, mais
+non observé sur ce poste.
+
+---
+
+## 011 — Angle mort d'usage corrigé : titres dynamiques et filtres sur mesure
+
+**Décision.** Trois changements dans la couche rapport :
+
+1. Un champ (colonne ou mesure) référencé par un filtre — rapport, page ou
+   visuel — alimente désormais le même ensemble d'« usages » que les champs
+   posés dans un visuel. Auparavant seul `23_Filtres.csv` le mentionnait ;
+   `24_Champs_NonUtilises.csv` classait à tort une mesure utilisée uniquement
+   en filtre comme supprimable.
+2. Un titre de visuel lié dynamiquement à une mesure/colonne (plutôt qu'un
+   texte fixe) est désormais détecté (`Get-ExprField`, factorisée à partir de
+   `Get-FilterField`) : le champ référencé alimente le même ensemble d'usages,
+   et `21_Visuels.csv` affiche `(titre dynamique : Table.Champ)` au lieu de
+   l'identifiant technique du visuel.
+3. **Bug préexistant corrigé**, découvert en écrivant le test du point 2 :
+   dans le chemin `.pbix` / `report.json` classique (hors PBIR), l'extraction
+   du titre passait par un appel `P(...)` enveloppé une fois de trop
+   (`P (P (P $sv 'vcObjects' $null) 'title' @()) )` au lieu de
+   `P (P $sv 'vcObjects' $null) 'title' @()`). Résultat : **aucun titre,
+   même fixe**, n'était jamais lu sur ce chemin — `21_Visuels.csv` affichait
+   systématiquement l'identifiant technique du visuel à la place. Le chemin
+   PBIR (`.pbip` récent) n'avait pas ce bug.
+
+**Motif.** `docs/PROMPTS.md` documentait déjà ces angles morts comme limite
+connue du prompt « Plan de nettoyage du modèle » (prompt #1) : une mesure
+utilisée uniquement en filtre ou en titre dynamique y apparaissait à tort
+comme supprimable. Les info-bulles posées via le puits de champs standard
+(« Tooltips ») n'ont pas cet angle mort : elles remontent déjà par la boucle
+générique sur les rôles de `projections`/`queryState`, qui n'est pas limitée
+à une liste de rôles connus — seules les info-bulles de type « page rapport »
+(page masquée utilisée comme info-bulle) restent hors périmètre de cette
+correction, la question posée y étant « la page est-elle atteignable », pas
+« le champ est-il atteignable ».
+
+**Statut.** VÉRIFIÉ sur deux fixtures synthétiques construites à la main
+(non capturées depuis un vrai `.pbix` — voir limite ci-dessous), une par
+format :
+- chemin `.pbix`/`report.json` classique : titre fixe, titre dynamique lié à
+  une mesure, filtre de visuel sur une mesure, une mesure jamais utilisée ;
+- chemin PBIR (`.pbip` récent) : titre dynamique et titre fixe.
+
+Dans les deux cas, `21_Visuels.csv` affiche le bon titre et
+`24_Champs_NonUtilises.csv` ne classe plus la mesure utilisée en titre ou en
+filtre comme supprimable, tout en continuant de classer correctement la
+mesure réellement inutilisée. Script exécuté de bout en bout sur ce poste via
+`-BimPath`/`-PbipFolder`/`-SkipDmv`/`-SansOuverture`, sortie constatée.
+
+**Limite non couverte par ce test.** Les fixtures sont écrites à la main
+d'après la structure documentée du JSON Power BI, pas capturées depuis un
+vrai rapport (`outils\Capture-Fixture.ps1` n'a pas été utilisé). Un run réel
+sur un rapport contenant un titre dynamique ou un filtre sur mesure reste à
+faire pour passer ce point de NON TESTÉ (implicite dans la fixture) à VÉRIFIÉ
+en conditions réelles.
