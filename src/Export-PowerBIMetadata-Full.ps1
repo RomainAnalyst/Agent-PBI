@@ -43,6 +43,25 @@ $ProduitPBI = ""     # "Power BI Desktop" ou "Power BI Desktop for Report Server
 #      necessite aucun provider OLE DB enregistre sur le poste ;
 #   2. ADODB + provider MSOLAP, si ADOMD est introuvable.
 # ------------------------------------------------------------------
+# Deroule la chaine InnerException et, quand elle existe, la propriete
+# LoaderExceptions (cas de ReflectionTypeLoadException, leve par Add-Type
+# quand l'assembly chargee reference un type dont une dependance manque ou ne
+# correspond pas -- le message .NET de premier niveau se contente de renvoyer
+# vers cette propriete sans la detailler, d'ou ce deroulage explicite).
+function Get-ErrDetail { param($Ex)
+    $msgs = New-Object System.Collections.Generic.List[string]
+    $cur = $Ex
+    while ($cur) {
+        $msgs.Add($cur.Message)
+        $le = $cur.PSObject.Properties['LoaderExceptions']
+        if ($le -and $le.Value) {
+            foreach ($sub in $le.Value) { $msgs.Add("LoaderException : $($sub.Message)") }
+        }
+        $cur = $cur.InnerException
+    }
+    return ($msgs -join ' <- ')
+}
+
 function Open-AsContext { param([string]$Port)
 
     # $script:AsDiag journalise chaque chemin/provider essaye et pourquoi il a
@@ -51,7 +70,12 @@ function Open-AsContext { param([string]$Port)
     # NON TESTE sur poste Report Server : dossier d'installation issu de la
     # documentation Microsoft, aucun poste disponible pour le confirmer.
     $script:AsDiag = New-Object System.Collections.Generic.List[string]
-    $dirs = New-Object System.Collections.Generic.List[string]
+    $dirs    = New-Object System.Collections.Generic.List[string]
+    $dirsVus = New-Object System.Collections.Generic.HashSet[string]   # eviter les doublons (ex. process en cours + chemin fixe identiques)
+    function Add-Dir { param([string]$D)
+        if (-not $D) { return }
+        if ($dirsVus.Add($D.ToLowerInvariant())) { $dirs.Add($D) }
+    }
 
     # Source la plus fiable, valable pour les 3 variantes (classique, Report
     # Server, Microsoft Store) : le dossier d'ou tourne reellement le process.
@@ -62,7 +86,7 @@ function Open-AsContext { param([string]$Port)
     $running = Get-Process msmdsrv, PBIDesktop -ErrorAction SilentlyContinue |
                Where-Object { $_.Path } | Select-Object -First 1
     if ($running) {
-        $dirs.Add((Split-Path $running.Path -Parent))
+        Add-Dir (Split-Path $running.Path -Parent)
         $script:AsDiag.Add("Process en cours detecte : $($running.Path)")
     } else {
         $script:AsDiag.Add("Aucun process msmdsrv/PBIDesktop avec chemin accessible (tourne peut-etre sous un autre compte, ou n'est pas lance).")
@@ -77,7 +101,7 @@ function Open-AsContext { param([string]$Port)
         "${env:ProgramFiles(x86)}\Microsoft.NET\ADOMD.NET"
     )) {
         if (-not $d) { continue }
-        if (Test-Path $d) { $dirs.Add($d) } else { $script:AsDiag.Add("Dossier candidat absent : $d") }
+        if (Test-Path $d) { Add-Dir $d } else { $script:AsDiag.Add("Dossier candidat absent : $d") }
     }
 
     # Secours best-effort : fonctionne seulement si la GPO du poste autorise
@@ -88,10 +112,10 @@ function Open-AsContext { param([string]$Port)
         if ($trouves.Count -eq 0) { $script:AsDiag.Add("WindowsApps enumerable mais aucun dossier Microsoft.MicrosoftPowerBIDesktop_* trouve.") }
         foreach ($it in $trouves) {
             $b = Join-Path $it.FullName "bin"
-            if (Test-Path $b) { $dirs.Add($b) } else { $script:AsDiag.Add("WindowsApps : $b absent") }
+            if (Test-Path $b) { Add-Dir $b } else { $script:AsDiag.Add("WindowsApps : $b absent") }
         }
     } catch {
-        $script:AsDiag.Add("WindowsApps non enumerable (GPO ou acces refuse) : $($_.Exception.Message)")
+        $script:AsDiag.Add("WindowsApps non enumerable (GPO ou acces refuse) : $(Get-ErrDetail $_.Exception)")
     }
 
     foreach ($d in $dirs) {
@@ -113,7 +137,7 @@ function Open-AsContext { param([string]$Port)
             $script:AsDiag.Add("OK : $($dll.FullName) (version $($dll.VersionInfo.FileVersion))")
             return @{ Mode = 'adomd'; Conn = $cn; Info = "ADOMD.NET ($($dll.FullName))" }
         } catch {
-            $script:AsDiag.Add("$($dll.FullName) (version $($dll.VersionInfo.FileVersion)) : chargement ou connexion en echec -- $($_.Exception.Message)")
+            $script:AsDiag.Add("$($dll.FullName) (version $($dll.VersionInfo.FileVersion)) : chargement ou connexion en echec -- $(Get-ErrDetail $_.Exception)")
         }
     }
 
@@ -124,7 +148,7 @@ function Open-AsContext { param([string]$Port)
             $script:AsDiag.Add("OK : ADODB/$prov")
             return @{ Mode = 'adodb'; Conn = $c; Info = "ADODB/$prov" }
         } catch {
-            $script:AsDiag.Add("Provider $prov : echec -- $($_.Exception.Message)")
+            $script:AsDiag.Add("Provider $prov : echec -- $(Get-ErrDetail $_.Exception)")
         }
     }
     return $null

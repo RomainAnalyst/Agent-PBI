@@ -345,12 +345,48 @@ identifier sur le poste concerné laquelle des causes possibles s'applique
 (dossier d'installation non standard, DLL absente, GPO bloquant
 `WindowsApps`, provider MSOLAP non enregistré, etc.).
 
-**Statut.** NON TESTÉ sur le poste Enedis (inaccessible depuis cette
-session) — le journal est un changement d'observabilité, sans changement de
-comportement fonctionnel (mêmes tentatives, même ordre, même repli vers
-l'analyse textuelle en cas d'échec total). Syntaxe vérifiée
+**Statut.** VÉRIFIÉ sur le poste Enedis (« Indicateur RI ARMA - V2 », sortie
+collée par l'utilisateur) : le journal s'affiche bien et a immédiatement
+identifié la cause précise — voir #014.
+
+Historique : lors de l'écriture de ce commit, sans accès au poste concerné,
+seule la syntaxe avait pu être vérifiée
 (`[System.Management.Automation.Language.Parser]::ParseFile`, aucune erreur)
-et comportement de repli (aucun DMV disponible → analyse textuelle) déjà
-couvert indirectement par le test de la décision #012, qui s'exécute avec
-`-SkipDmv`. Reste à faire : lancer l'export sur le poste Enedis et lire le
-journal produit pour confirmer laquelle des causes diagnostiquées s'applique.
+et le comportement de repli (aucun DMV disponible → analyse textuelle) via le
+test de la décision #012 (`-SkipDmv`).
+
+## 014 — Cause identifiée sur le poste Enedis : `Add-Type` échoue sans détailler `LoaderExceptions`
+
+**Constat (poste Enedis, run réel).** Le journal de la décision #013 a
+immédiatement pointé la cause : les deux DLL `Microsoft.PowerBI.AdomdClient.dll`
+trouvées (`...\Microsoft Power BI Desktop\bin`, version 17.0.31.22, et
+`...\Microsoft Power BI Desktop RS\bin`, version 16.0.109.17 — **ce poste a
+les deux variantes installées en parallèle**) échouent toutes les deux au
+chargement avec le même message .NET : *« Impossible de charger un ou
+plusieurs des types requis. Extrayez la propriété LoaderExceptions pour plus
+d'informations. »* — une `ReflectionTypeLoadException` dont le journal ne
+capturait que `$_.Exception.Message`, sans jamais lire la propriété
+`LoaderExceptions` que le message pointe explicitement. Les trois providers
+MSOLAP échouent aussi (non enregistrés sur ce poste). Effet de bord observé :
+le même dossier apparaissait deux fois dans le journal (process `msmdsrv.exe`
+en cours et chemin fixe `Program Files\...\bin` pointent vers le même
+dossier, ajouté sans déduplication).
+
+**Décision.** Ajout de `Get-ErrDetail`, qui déroule la chaîne
+`InnerException` d'une exception et, à chaque niveau, lit `LoaderExceptions`
+quand elle est présente (test par nom de propriété via `PSObject.Properties`,
+sans dépendre du type exact de l'exception). Utilisée dans les trois `catch`
+de `Open-AsContext` à la place de `$_.Exception.Message`. `$dirs` est
+maintenant dédupliqué (`Add-Dir`, comparaison insensible à la casse) pour ne
+plus scanner/journaliser deux fois le même dossier.
+
+**Statut.** TESTÉ SUR FIXTURE : `Get-ErrDetail` vérifiée isolément sur ce
+poste avec une exception simple (aucune `LoaderExceptions` → une seule
+ligne) et une `ReflectionTypeLoadException` synthétique portant une
+`LoaderExceptions` peuplée (→ message principal suivi du détail de la
+`LoaderException`, sortie constatée). `.\tests\Invoke-Tests.ps1` repasse
+après ce changement. **Reste à faire** : relancer l'export sur le poste
+Enedis pour lire le détail réel de la `LoaderExceptions` sous-jacente (la
+sortie déjà collée date d'avant ce correctif) et en déduire l'action
+corrective (assembly dépendante manquante, version de .NET Framework,
+conflit entre les deux variantes installées, etc.).
