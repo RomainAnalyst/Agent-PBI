@@ -390,3 +390,76 @@ Enedis pour lire le détail réel de la `LoaderExceptions` sous-jacente (la
 sortie déjà collée date d'avant ce correctif) et en déduire l'action
 corrective (assembly dépendante manquante, version de .NET Framework,
 conflit entre les deux variantes installées, etc.).
+
+## 015 — Cause confirmée sur le poste Enedis : MSAL présent mais non résolu par ADOMD
+
+**Constat (poste Enedis, `LoaderExceptions` lue grâce à #014).** La
+dépendance manquante est `Microsoft.Identity.Client` (MSAL) version 4.65.0.0.
+Or `Microsoft.Identity.Client.dll` existe bien dans le même dossier que
+l'ADOMD (`C:\Program Files\Microsoft Power BI Desktop\bin\`) : ce n'est donc
+pas une absence, mais un problème de résolution — le probing .NET standard
+(dossier de l'exécutable hôte `powershell.exe`, GAC) ne regarde pas le
+dossier où se trouve l'ADOMD lui-même. La variante Microsoft Store fonctionne
+parce que son dossier `bin` est celui du processus hôte (`PBIDesktop.exe`
+tournant depuis ce même dossier), ce qui n'est pas le cas ici : le script
+tourne dans `powershell.exe`, dont le dossier ne contient pas MSAL.
+
+**Décision.** `Open-AsContext` enregistre un gestionnaire
+`AppDomain.CurrentDomain.AssemblyResolve` (`Register-AsResolveHandler`)
+avant toute tentative de chargement de l'ADOMD. Il :
+- extrait le nom court de l'assembly demandée (`AssemblyName`) ;
+- la cherche dans le dossier de la DLL ADOMD en cours de chargement et ses
+  sous-dossiers (`$script:AsResolveDir`, mis à jour avant chaque tentative) ;
+- la charge avec `Assembly.LoadFrom` même si son numéro de version diffère de
+  celui demandé (ADOMD s'en contente généralement) ;
+- renvoie `$null` sans lever d'exception si rien n'est trouvé, pour laisser
+  l'erreur d'origine remonter normalement ;
+- ne s'enregistre qu'une fois (`$script:AsResolverRegistered`), même si
+  `Open-AsContext` est appelée deux fois (étape 1c puis étape 3).
+
+Le diagnostic (#013) journalise en plus, pour chaque DLL ADOMD candidate, si
+`Microsoft.Identity.Client.dll` est présente à côté et sa version d'assembly
+réelle — pour comparer directement à la 4.65.0.0 attendue sans avoir à lire
+une `LoaderExceptions`.
+
+**Motif.** Conforme à la décision #002 (ADOMD.NET plutôt que le provider
+OLE DB) : le problème n'est pas ADOMD lui-même mais la résolution de ses
+dépendances quand le processus hôte n'est pas celui dont le dossier `bin`
+contient déjà tout. Un gestionnaire `AssemblyResolve` est la solution .NET
+standard à ce problème, plus robuste qu'une copie manuelle de DLL (qui devrait
+être répétée à chaque mise à jour de Power BI Desktop) et sans dépendance
+externe à installer (contrainte d'environnement non négociable).
+
+**Statut.** Le mécanisme du gestionnaire est VÉRIFIÉ, mais pas avec MSAL
+réel — aucun poste avec ADOMD/MSAL n'est disponible sur ce dépôt. Reproduit à
+l'identique avec deux assemblies .NET compilées à la volée (`Add-Type
+-OutputAssembly`) : `Consumer.dll` référence `Dependency.dll` en version
+1.0.0.0 à la compilation, sans l'avoir à côté de lui à l'exécution ; une
+version 2.0.0.0 de `Dependency.dll` est placée dans un dossier tiers pointé
+par `$script:AsResolveDir`. Constaté dans un processus PowerShell isolé
+(`-NoProfile`, pour exclure toute assembly déjà chargée en mémoire) :
+- sans gestionnaire enregistré : `FileNotFoundException` (comportement
+  actuel sur poste Enedis) ;
+- gestionnaire enregistré, `$script:AsResolveDir` pointé vers le dossier
+  tiers : l'appel réussit et renvoie la valeur de la version 2.0.0.0, malgré
+  le numéro de version demandé (1.0.0.0) différent de celui trouvé — preuve
+  que la tolérance de version fonctionne ;
+- gestionnaire enregistré 3 fois de suite avant une résolution : une seule
+  entrée de journal produite pour cette résolution (pas de double
+  déclenchement) ;
+- dépendance absente du dossier pointé (dossier vide) : l'exception d'origine
+  (`FileNotFoundException`) remonte inchangée, rien n'est masqué.
+
+**Bug trouvé et corrigé pendant ce test** : `if ($script:AsDiag) { ... }`
+dans le gestionnaire ne journalisait jamais sa toute première entrée — en
+PowerShell, la véracité d'une collection (ici `List[string]`) se juge sur son
+`Count`, pas sur sa nullité ; une liste vide vaut `$false`. Remplacé par
+`if ($null -ne $script:AsDiag)`. Sans ce test, ce bug serait passé inaperçu
+jusqu'à sa découverte sur un vrai poste, en silence.
+
+**Reste NON TESTÉ** : le comportement avec le vrai ADOMD/MSAL du poste
+Enedis. Cette session n'a pas accès à ce poste — il appartient à
+l'utilisateur, pas à l'environnement d'exécution de l'assistant. Étape
+suivante : relancer l'export sur ce poste et vérifier que `SourceAnalyse`
+passe à `DMV` dans `24_Champs_NonUtilises.csv` (et que les `DMV_*.csv`
+apparaissent).

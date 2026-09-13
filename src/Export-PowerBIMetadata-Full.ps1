@@ -36,6 +36,8 @@ $sw = [System.Diagnostics.Stopwatch]::StartNew()
 $port = $null; $database = $null; $conn = $null; $calcDep = $null
 $asCtx = $null       # contexte de requete Analysis Services (ADOMD ou ADODB)
 $ProduitPBI = ""     # "Power BI Desktop" ou "Power BI Desktop for Report Server"
+$script:AsResolveDir        = $null    # dossier de recherche courant du gestionnaire AssemblyResolve
+$script:AsResolverRegistered = $false  # n'enregistrer le gestionnaire qu'une fois, meme si Open-AsContext est appelee plusieurs fois
 
 # ------------------------------------------------------------------
 # Acces aux DMV. Deux backends, essayes dans cet ordre :
@@ -60,6 +62,50 @@ function Get-ErrDetail { param($Ex)
         $cur = $cur.InnerException
     }
     return ($msgs -join ' <- ')
+}
+
+# ADOMD.NET reference des assemblies satellites (ex. Microsoft.Identity.Client,
+# alias MSAL) que le probing .NET standard ne trouve pas quand elles sont a
+# cote de la DLL ADOMD plutot que dans le GAC ou le dossier de l'executable
+# hote. VERIFIE : cas constate sur poste Enedis (Add-Type sur l'ADOMD echoue
+# avec une ReflectionTypeLoadException faute de resoudre MSAL 4.65.0.0, alors
+# que Microsoft.Identity.Client.dll est bien present dans le meme dossier).
+# Ce gestionnaire la fournit en la cherchant dans $script:AsResolveDir (mis a
+# jour avant chaque tentative de chargement d'une DLL ADOMD).
+#
+# N'utilise que des appels .NET statiques (pas de cmdlet) : le gestionnaire
+# est invoque par le CLR de facon synchrone pendant Add-Type/AdomdConnection,
+# et rien ne garantit qu'une cmdlet (Get-ChildItem, Test-Path, New-Object) s'y
+# comporte normalement dans ce contexte -- non teste, aucun poste avec ADOMD
+# disponible sur ce depot pour le confirmer, d'ou ce choix prudent.
+function Register-AsResolveHandler {
+    if ($script:AsResolverRegistered) { return }
+    $handler = [System.ResolveEventHandler] {
+        param($resolveSender, $resolveArgs)
+        try {
+            $nom = ([System.Reflection.AssemblyName]::new($resolveArgs.Name)).Name
+        } catch { return $null }
+        $dir = $script:AsResolveDir
+        if (-not $dir -or -not [System.IO.Directory]::Exists($dir)) { return $null }
+        $candidats = [System.IO.Directory]::GetFiles($dir, "$nom.dll", [System.IO.SearchOption]::AllDirectories)
+        if ($candidats.Count -eq 0) { return $null }
+        try {
+            # LoadFrom tolere un numero de version different de celui demande --
+            # ADOMD s'en contente generalement (cas MSAL constate sur poste Enedis).
+            $asm = [System.Reflection.Assembly]::LoadFrom($candidats[0])
+            # PIEGE PS : "if ($script:AsDiag)" sur une List[string] VIDE vaut
+            # $false (verite d'une collection = son Count, pas sa nullite) --
+            # VERIFIE (le tout premier message journalise depuis le gestionnaire
+            # disparaissait silencieusement). D'ou le test explicite sur $null.
+            if ($null -ne $script:AsDiag) { [void]$script:AsDiag.Add("AssemblyResolve : $nom -> $($candidats[0]) (version $($asm.GetName().Version))") }
+            return $asm
+        } catch {
+            if ($null -ne $script:AsDiag) { [void]$script:AsDiag.Add("AssemblyResolve : $nom trouve ($($candidats[0])) mais LoadFrom en echec -- $($_.Exception.Message)") }
+            return $null
+        }
+    }
+    [System.AppDomain]::CurrentDomain.add_AssemblyResolve($handler)
+    $script:AsResolverRegistered = $true
 }
 
 function Open-AsContext { param([string]$Port)
@@ -118,6 +164,8 @@ function Open-AsContext { param([string]$Port)
         $script:AsDiag.Add("WindowsApps non enumerable (GPO ou acces refuse) : $(Get-ErrDetail $_.Exception)")
     }
 
+    Register-AsResolveHandler
+
     foreach ($d in $dirs) {
         # Le nom du fichier a change selon les versions : "Microsoft.PowerBI.AdomdClient.dll"
         # dans les builds recentes (dont la variante Microsoft Store), au lieu de
@@ -130,6 +178,23 @@ function Open-AsContext { param([string]$Port)
             $script:AsDiag.Add("$d : ni Microsoft.AnalysisServices.AdomdClient.dll ni Microsoft.PowerBI.AdomdClient.dll")
             continue
         }
+        $dllDir = Split-Path $dll.FullName -Parent
+
+        # MSAL (Microsoft.Identity.Client) : dependance d'ADOMD non resolue par
+        # le probing standard sur certains postes (Enedis) alors qu'elle est
+        # bien presente a cote de l'ADOMD. Journalise sa version pour comparer
+        # a celle demandee au chargement (visible dans le message d'echec).
+        $msal = Get-ChildItem $dllDir -Filter "Microsoft.Identity.Client.dll" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($msal) {
+            $verAssembly = try { [System.Reflection.AssemblyName]::GetAssemblyName($msal.FullName).Version } catch { "?" }
+            $script:AsDiag.Add("Microsoft.Identity.Client.dll trouve : $($msal.FullName) (assembly $verAssembly, fichier $($msal.VersionInfo.FileVersion))")
+        } else {
+            $script:AsDiag.Add("Microsoft.Identity.Client.dll absent de $dllDir")
+        }
+
+        # Dossier fourni au gestionnaire AssemblyResolve pour cette tentative :
+        # celui de la DLL ADOMD en cours de chargement, et ses sous-dossiers.
+        $script:AsResolveDir = $dllDir
         try {
             Add-Type -Path $dll.FullName -ErrorAction Stop
             $cn = New-Object Microsoft.AnalysisServices.AdomdClient.AdomdConnection("Data Source=localhost:$Port;")
