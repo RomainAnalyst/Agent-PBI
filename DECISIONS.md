@@ -457,9 +457,16 @@ PowerShell, la véracité d'une collection (ici `List[string]`) se juge sur son
 `if ($null -ne $script:AsDiag)`. Sans ce test, ce bug serait passé inaperçu
 jusqu'à sa découverte sur un vrai poste, en silence.
 
-**Reste NON TESTÉ** : le comportement avec le vrai ADOMD/MSAL du poste
-Enedis. Cette session n'a pas accès à ce poste — il appartient à
-l'utilisateur, pas à l'environnement d'exécution de l'assistant. Étape
-suivante : relancer l'export sur ce poste et vérifier que `SourceAnalyse`
-passe à `DMV` dans `24_Champs_NonUtilises.csv` (et que les `DMV_*.csv`
-apparaissent).
+**Confirmation finale — VÉRIFIÉ sur poste Enedis (run réel, sortie collée par
+l'utilisateur).** L'export complet sur le rapport « Indicateur RI ARMA - V2 »
+affiche désormais `-> Acces aux DMV : ADOMD.NET
+(C:\Program Files\Microsoft Power BI Desktop\bin\Microsoft.PowerBI.AdomdClient.dll)`
+dès l'étape 1c (donc le gestionnaire a résolu MSAL au tout premier essai, pas
+seulement en repli), puis à l'étape 3 : `-> Extraction DMV (ADOMD.NET...)`
+avec les quatre fichiers produits (`DMV_Dependances.csv` 855 lignes,
+`DMV_Tables_NbLignes.csv` 595, `DMV_Colonnes_Cardinalite.csv` 1595,
+`DMV_Colonnes_Memoire.csv` 2847), et `24_Champs_NonUtilises.csv` généré
+**sans** le message de repli « dependances deduites du texte » — confirmant
+que `SourceAnalyse = DMV`, plus fiable que l'analyse textuelle (voir
+`docs/PROMPTS.md`). Le problème signalé au départ (aucun `DMV_*.csv` produit
+sur ce poste) est résolu.
