@@ -37,6 +37,13 @@ Elles conditionnent la fiabilité de plusieurs prompts ci-dessous :
   info-bulle n'est pas reliée au champ qui la déclenche).
 - Les verdicts de `24_Champs_NonUtilises.csv` sont fiables quand
   `SourceAnalyse = DMV`. En `Analyse textuelle`, ils sont indicatifs.
+- `24_Champs_NonUtilises.csv` traite comme racines (jamais `Supprimable`) les
+  colonnes de relation, les colonnes référencées par `sortByColumn`, les
+  colonnes utilisées dans une hiérarchie, les colonnes de `DataCategory`
+  temporelle et les colonnes d'une table marquée « table de dates », en plus
+  des champs posés dans un visuel et de la RLS (voir `DECISIONS.md` #012).
+  La colonne `Motif` indique laquelle de ces raisons justifie qu'un objet
+  n'apparaisse pas comme supprimable.
 - Aucun fichier ne contient de données métier, uniquement des métadonnées.
 
 ---

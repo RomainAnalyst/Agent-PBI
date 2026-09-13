@@ -257,3 +257,100 @@ vrai rapport (`outils\Capture-Fixture.ps1` n'a pas été utilisé). Un run réel
 sur un rapport contenant un titre dynamique ou un filtre sur mesure reste à
 faire pour passer ce point de NON TESTÉ (implicite dans la fixture) à VÉRIFIÉ
 en conditions réelles.
+
+## 012 — Colonnes de relation classées à tort « Supprimable » : nouvelles racines structurelles + colonne Motif
+
+**Bug signalé (poste Enedis).** 25 colonnes portant une relation (ex.
+`Absenteisme[NNI]`, `ICOL[NniCA]`, `Plan_de_Prevention[nni_cp]`) ressortaient
+`Supprimable` dans `24_Champs_NonUtilises.csv`. Les supprimer aurait cassé le
+modèle : ce sont des clés de relation, jamais posées telles quelles dans un
+visuel, et le graphe de dépendances ne les traitait comme racines dans aucun
+cas — ni DMV (`DISCOVER_CALC_DEPENDENCY` ne relie pas deux colonnes par une
+relation, seulement par une expression DAX/M), ni analyse textuelle.
+
+**Décision.** `24_Champs_NonUtilises.csv` traite désormais comme racines du
+graphe, en plus des champs posés dans un visuel et des colonnes de sécurité
+au niveau ligne (RLS) déjà couvertes :
+- la colonne source et la colonne cible de chaque relation (`05_Relations.csv`) ;
+- la colonne référencée par `sortByColumn` d'une autre colonne ;
+- les colonnes utilisées comme niveau d'une hiérarchie ;
+- les colonnes dont le `DataCategory` relève de la taxonomie date/heure Power
+  BI (`Year`, `Quarter`, `Month`, `Day`, ...) ;
+- toutes les colonnes d'une table dont `DataCategory = "Time"` (table marquée
+  « table de dates » dans Power BI Desktop), y compris les colonnes
+  techniques (numéro de mois, etc.) qu'une hiérarchie de dates intégrée
+  utilise sans lien explicite dans le modèle.
+
+Une colonne `Motif` est ajoutée à `24_Champs_NonUtilises.csv` : elle indique
+pourquoi un objet non posé directement dans un visuel est retenu —
+`relation`, `tri`, `hierarchie`, `RLS`, `visuel`, `table de dates`,
+`categorie temporelle`, ou `dependance DAX` quand l'objet n'est lui-même
+aucune de ces racines mais qu'une racine en dépend (propagation dans le
+graphe). Vide quand l'objet reste `Supprimable` ou `Chaine morte - a
+verifier`.
+
+**Motif du choix.** Le TMSL n'expose pas de propriété « pourquoi cette
+colonne existe » : une relation, un tri personnalisé ou une hiérarchie sont
+des usages du modèle au même titre qu'un visuel, mais ne produisent aucune
+ligne dans le calcul d'usage existant, qui ne regardait que les visuels, les
+filtres/titres (décision #011) et la RLS. La colonne `DataCategory = "Time"`
+pour une table est la représentation TMSL documentée du marquage « Table de
+dates » de Power BI Desktop ; la liste de valeurs `DataCategory` temporelles
+au niveau colonne est une reconstruction raisonnée d'après la taxonomie
+Power BI connue (`Year`, `Quarter`, `Month`, `Day` et variantes), **non
+vérifiée sur un vrai modèle marqué comme tel** — voir statut ci-dessous.
+
+**Statut.** VÉRIFIÉ sur fixture synthétique
+(`tests/fixtures/relations-supprimables/`, écrite à la main : pas de capture
+`outils\Capture-Fixture.ps1`) : un modèle avec 3 relations vers une table
+`Personnel`, une colonne triée par une colonne technique masquée
+(`sortByColumn`), une hiérarchie référençant deux colonnes masquées, et une
+table `Calendrier` marquée `DataCategory = "Time"`. Script exécuté de bout en
+bout sur ce poste via `-BimPath`/`-PbipFolder`/`-SkipDmv`/`-SansOuverture` :
+- avant le correctif (script d'avant ce commit, ré-exécuté pour comparaison) :
+  les 4 colonnes de relation, les 2 colonnes de date technique et la colonne
+  triée ressortaient toutes `Supprimable` ;
+- après : elles ressortent `Intermediaire - conserver` avec le `Motif`
+  attendu (`relation`, `tri`, `hierarchie`, `table de dates`, `categorie
+  temporelle`, combinés quand plusieurs s'appliquent), et les deux colonnes
+  réellement inutilisées de la fixture (`ICOL[Commentaire]`,
+  `Plan_de_Prevention[Intitule]`) restent correctement `Supprimable`.
+
+**Limite non couverte par ce test.** La liste de valeurs `DataCategory`
+temporelles au niveau colonne (`Year`, `Quarter`, `Month`, `Day`,
+`PaddedDateTableDates`, ...) est écrite d'après la documentation et le
+raisonnement, pas confirmée sur un modèle réel marqué « Table de dates » par
+l'assistant Power BI Desktop — à vérifier sur un poste avec Power BI Desktop
+ouvert et un vrai marquage de table de dates avant de considérer ce point
+acquis.
+
+## 013 — Diagnostic explicite quand ADOMD/MSOLAP échouent (poste Enedis)
+
+**Constat.** Sur le poste Enedis, aucun `DMV_*.csv` n'est produit — les DMV
+échouent silencieusement — alors que le correctif ADOMD (recherche des deux
+noms de DLL, `Microsoft.AnalysisServices.AdomdClient.dll` et
+`Microsoft.PowerBI.AdomdClient.dll`) fonctionne sur poste Store. `Open-AsContext`
+avalait toutes les exceptions (`catch { }`) sans laisser de trace exploitable
+pour distinguer « dossier absent », « DLL introuvable » et « DLL trouvée mais
+connexion refusée ».
+
+**Décision.** `Open-AsContext` construit maintenant un journal
+(`$script:AsDiag`, une ligne par étape) : dossiers candidats testés et
+absents, résultat de l'énumération `WindowsApps`, DLL introuvable par
+dossier, ou message d'exception exact quand `Add-Type`/`AdomdConnection.Open`
+échoue malgré une DLL trouvée, puis la même chose pour chaque provider ADODB
+(`MSOLAP`, `MSOLAP.8`, `MSOLAP.7`). Quand l'étape 3 (DMV) échoue au final, ce
+journal est affiché en console sous le message « DMV ignorées » existant, pour
+identifier sur le poste concerné laquelle des causes possibles s'applique
+(dossier d'installation non standard, DLL absente, GPO bloquant
+`WindowsApps`, provider MSOLAP non enregistré, etc.).
+
+**Statut.** NON TESTÉ sur le poste Enedis (inaccessible depuis cette
+session) — le journal est un changement d'observabilité, sans changement de
+comportement fonctionnel (mêmes tentatives, même ordre, même repli vers
+l'analyse textuelle en cas d'échec total). Syntaxe vérifiée
+(`[System.Management.Automation.Language.Parser]::ParseFile`, aucune erreur)
+et comportement de repli (aucun DMV disponible → analyse textuelle) déjà
+couvert indirectement par le test de la décision #012, qui s'exécute avec
+`-SkipDmv`. Reste à faire : lancer l'export sur le poste Enedis et lire le
+journal produit pour confirmer laquelle des causes diagnostiquées s'applique.

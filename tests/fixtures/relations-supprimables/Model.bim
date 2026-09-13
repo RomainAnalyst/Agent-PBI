@@ -1,0 +1,200 @@
+{
+    "name":  "FixtureRelations",
+    "compatibilityLevel":  1567,
+    "model":  {
+                  "culture":  "fr-FR",
+                  "defaultMode":  "import",
+                  "tables":  [
+                                 {
+                                     "name":  "Absenteisme",
+                                     "columns":  [
+                                                     {
+                                                         "name":  "NNI",
+                                                         "dataType":  "string",
+                                                         "sourceColumn":  "NNI",
+                                                         "isHidden":  true
+                                                     },
+                                                     {
+                                                         "name":  "NbJours",
+                                                         "dataType":  "int64",
+                                                         "sourceColumn":  "NbJours"
+                                                     }
+                                                 ],
+                                     "measures":  [
+                                                      {
+                                                          "name":  "NbAbsences",
+                                                          "expression":  "SUM(Absenteisme[NbJours])"
+                                                      }
+                                                  ],
+                                     "partitions":  [
+                                                        {
+                                                            "name":  "Absenteisme",
+                                                            "mode":  "import",
+                                                            "source":  {
+                                                                           "type":  "m",
+                                                                           "expression":  "let Source = 1 in Source"
+                                                                       }
+                                                        }
+                                                    ]
+                                 },
+                                 {
+                                     "name":  "Personnel",
+                                     "columns":  [
+                                                     {
+                                                         "name":  "NNI",
+                                                         "dataType":  "string",
+                                                         "sourceColumn":  "NNI",
+                                                         "isHidden":  true
+                                                     },
+                                                     {
+                                                         "name":  "Nom",
+                                                         "dataType":  "string",
+                                                         "sourceColumn":  "Nom"
+                                                     }
+                                                 ],
+                                     "partitions":  [
+                                                        {
+                                                            "name":  "Personnel",
+                                                            "mode":  "import",
+                                                            "source":  {
+                                                                           "type":  "m",
+                                                                           "expression":  "let Source = 1 in Source"
+                                                                       }
+                                                        }
+                                                    ]
+                                 },
+                                 {
+                                     "name":  "ICOL",
+                                     "columns":  [
+                                                     {
+                                                         "name":  "NniCA",
+                                                         "dataType":  "string",
+                                                         "sourceColumn":  "NniCA",
+                                                         "isHidden":  true
+                                                     },
+                                                     {
+                                                         "name":  "Commentaire",
+                                                         "dataType":  "string",
+                                                         "sourceColumn":  "Commentaire"
+                                                     }
+                                                 ],
+                                     "partitions":  [
+                                                        {
+                                                            "name":  "ICOL",
+                                                            "mode":  "import",
+                                                            "source":  {
+                                                                           "type":  "m",
+                                                                           "expression":  "let Source = 1 in Source"
+                                                                       }
+                                                        }
+                                                    ]
+                                 },
+                                 {
+                                     "name":  "Plan_de_Prevention",
+                                     "columns":  [
+                                                     {
+                                                         "name":  "nni_cp",
+                                                         "dataType":  "string",
+                                                         "sourceColumn":  "nni_cp",
+                                                         "isHidden":  true
+                                                     },
+                                                     {
+                                                         "name":  "Intitule",
+                                                         "dataType":  "string",
+                                                         "sourceColumn":  "Intitule"
+                                                     }
+                                                 ],
+                                     "partitions":  [
+                                                        {
+                                                            "name":  "Plan_de_Prevention",
+                                                            "mode":  "import",
+                                                            "source":  {
+                                                                           "type":  "m",
+                                                                           "expression":  "let Source = 1 in Source"
+                                                                       }
+                                                        }
+                                                    ]
+                                 },
+                                 {
+                                     "name":  "Calendrier",
+                                     "dataCategory":  "Time",
+                                     "columns":  [
+                                                     {
+                                                         "name":  "Date",
+                                                         "dataType":  "dateTime",
+                                                         "sourceColumn":  "Date"
+                                                     },
+                                                     {
+                                                         "name":  "Annee",
+                                                         "dataType":  "int64",
+                                                         "sourceColumn":  "Annee",
+                                                         "dataCategory":  "Year",
+                                                         "isHidden":  true
+                                                     },
+                                                     {
+                                                         "name":  "MoisNum",
+                                                         "dataType":  "int64",
+                                                         "sourceColumn":  "MoisNum",
+                                                         "isHidden":  true
+                                                     },
+                                                     {
+                                                         "name":  "MoisNom",
+                                                         "dataType":  "string",
+                                                         "sourceColumn":  "MoisNom",
+                                                         "sortByColumn":  "MoisNum"
+                                                     }
+                                                 ],
+                                     "hierarchies":  [
+                                                         {
+                                                             "name":  "Hierarchie Calendrier",
+                                                             "levels":  [
+                                                                            {
+                                                                                "name":  "AnneeNiveau",
+                                                                                "ordinal":  0,
+                                                                                "column":  "Annee"
+                                                                            },
+                                                                            {
+                                                                                "name":  "MoisNiveau",
+                                                                                "ordinal":  1,
+                                                                                "column":  "MoisNum"
+                                                                            }
+                                                                        ]
+                                                         }
+                                                     ],
+                                     "partitions":  [
+                                                        {
+                                                            "name":  "Calendrier",
+                                                            "mode":  "import",
+                                                            "source":  {
+                                                                           "type":  "m",
+                                                                           "expression":  "let Source = 1 in Source"
+                                                                       }
+                                                        }
+                                                    ]
+                                 }
+                             ],
+                  "relationships":  [
+                                        {
+                                            "name":  "R1",
+                                            "fromTable":  "Absenteisme",
+                                            "fromColumn":  "NNI",
+                                            "toTable":  "Personnel",
+                                            "toColumn":  "NNI"
+                                        },
+                                        {
+                                            "name":  "R2",
+                                            "fromTable":  "ICOL",
+                                            "fromColumn":  "NniCA",
+                                            "toTable":  "Personnel",
+                                            "toColumn":  "NNI"
+                                        },
+                                        {
+                                            "name":  "R3",
+                                            "fromTable":  "Plan_de_Prevention",
+                                            "fromColumn":  "nni_cp",
+                                            "toTable":  "Personnel",
+                                            "toColumn":  "NNI"
+                                        }
+                                    ]
+              }
+}

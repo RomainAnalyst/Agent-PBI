@@ -45,9 +45,12 @@ $ProduitPBI = ""     # "Power BI Desktop" ou "Power BI Desktop for Report Server
 # ------------------------------------------------------------------
 function Open-AsContext { param([string]$Port)
 
-    # NON TESTE : le dossier d'installation "...Desktop RS\bin" pour Power BI
-    # Desktop for Report Server vient de la documentation Microsoft, aucun
-    # poste Report Server n'etait disponible pour le confirmer sur ce depot.
+    # $script:AsDiag journalise chaque chemin/provider essaye et pourquoi il a
+    # echoue, pour diagnostiquer un poste (ex. Enedis) ou aucun backend ne
+    # repond alors que le correctif ADOMD fonctionne sur un autre poste (Store).
+    # NON TESTE sur poste Report Server : dossier d'installation issu de la
+    # documentation Microsoft, aucun poste disponible pour le confirmer.
+    $script:AsDiag = New-Object System.Collections.Generic.List[string]
     $dirs = New-Object System.Collections.Generic.List[string]
 
     # Source la plus fiable, valable pour les 3 variantes (classique, Report
@@ -58,7 +61,12 @@ function Open-AsContext { param([string]$Port)
     # donc injoignable par un motif avec caractere generique. VERIFIE.
     $running = Get-Process msmdsrv, PBIDesktop -ErrorAction SilentlyContinue |
                Where-Object { $_.Path } | Select-Object -First 1
-    if ($running) { $dirs.Add((Split-Path $running.Path -Parent)) }
+    if ($running) {
+        $dirs.Add((Split-Path $running.Path -Parent))
+        $script:AsDiag.Add("Process en cours detecte : $($running.Path)")
+    } else {
+        $script:AsDiag.Add("Aucun process msmdsrv/PBIDesktop avec chemin accessible (tourne peut-etre sous un autre compte, ou n'est pas lance).")
+    }
 
     foreach ($d in @(
         "$env:ProgramFiles\Microsoft Power BI Desktop\bin",
@@ -68,19 +76,23 @@ function Open-AsContext { param([string]$Port)
         "$env:ProgramFiles\Microsoft.NET\ADOMD.NET",
         "${env:ProgramFiles(x86)}\Microsoft.NET\ADOMD.NET"
     )) {
-        if ($d -and (Test-Path $d)) { $dirs.Add($d) }
+        if (-not $d) { continue }
+        if (Test-Path $d) { $dirs.Add($d) } else { $script:AsDiag.Add("Dossier candidat absent : $d") }
     }
 
     # Secours best-effort : fonctionne seulement si la GPO du poste autorise
     # l'enumeration de WindowsApps (pas le cas constate ici). NON TESTE comme
     # source effective -- $running ci-dessus suffit deja quand Power BI tourne.
     try {
-        Get-ChildItem "$env:ProgramFiles\WindowsApps" -Directory -Filter "Microsoft.MicrosoftPowerBIDesktop_*" -ErrorAction Stop |
-            ForEach-Object {
-                $b = Join-Path $_.FullName "bin"
-                if (Test-Path $b) { $dirs.Add($b) }
-            }
-    } catch { }
+        $trouves = @(Get-ChildItem "$env:ProgramFiles\WindowsApps" -Directory -Filter "Microsoft.MicrosoftPowerBIDesktop_*" -ErrorAction Stop)
+        if ($trouves.Count -eq 0) { $script:AsDiag.Add("WindowsApps enumerable mais aucun dossier Microsoft.MicrosoftPowerBIDesktop_* trouve.") }
+        foreach ($it in $trouves) {
+            $b = Join-Path $it.FullName "bin"
+            if (Test-Path $b) { $dirs.Add($b) } else { $script:AsDiag.Add("WindowsApps : $b absent") }
+        }
+    } catch {
+        $script:AsDiag.Add("WindowsApps non enumerable (GPO ou acces refuse) : $($_.Exception.Message)")
+    }
 
     foreach ($d in $dirs) {
         # Le nom du fichier a change selon les versions : "Microsoft.PowerBI.AdomdClient.dll"
@@ -90,21 +102,30 @@ function Open-AsContext { param([string]$Port)
         # deux cas -- VERIFIE par inspection de l'assembly. On cherche donc les deux noms.
         $dll = Get-ChildItem $d -Include "Microsoft.AnalysisServices.AdomdClient.dll", "Microsoft.PowerBI.AdomdClient.dll" -Recurse -ErrorAction SilentlyContinue |
                Sort-Object { $_.VersionInfo.FileVersion } -Descending | Select-Object -First 1
-        if (-not $dll) { continue }
+        if (-not $dll) {
+            $script:AsDiag.Add("$d : ni Microsoft.AnalysisServices.AdomdClient.dll ni Microsoft.PowerBI.AdomdClient.dll")
+            continue
+        }
         try {
             Add-Type -Path $dll.FullName -ErrorAction Stop
             $cn = New-Object Microsoft.AnalysisServices.AdomdClient.AdomdConnection("Data Source=localhost:$Port;")
             $cn.Open()
-            return @{ Mode = 'adomd'; Conn = $cn; Info = "ADOMD.NET" }
-        } catch { }
+            $script:AsDiag.Add("OK : $($dll.FullName) (version $($dll.VersionInfo.FileVersion))")
+            return @{ Mode = 'adomd'; Conn = $cn; Info = "ADOMD.NET ($($dll.FullName))" }
+        } catch {
+            $script:AsDiag.Add("$($dll.FullName) (version $($dll.VersionInfo.FileVersion)) : chargement ou connexion en echec -- $($_.Exception.Message)")
+        }
     }
 
     foreach ($prov in @("MSOLAP", "MSOLAP.8", "MSOLAP.7")) {
         try {
             $c = New-Object -ComObject ADODB.Connection
             $c.Open("Provider=$prov;Data Source=localhost:$Port;")
+            $script:AsDiag.Add("OK : ADODB/$prov")
             return @{ Mode = 'adodb'; Conn = $c; Info = "ADODB/$prov" }
-        } catch { }
+        } catch {
+            $script:AsDiag.Add("Provider $prov : echec -- $($_.Exception.Message)")
+        }
     }
     return $null
 }
@@ -825,6 +846,14 @@ if (-not $SkipDmv -and $port) {
     } else {
         Write-Host "-> DMV ignorees : ni ADOMD.NET ni le provider MSOLAP n'ont repondu." -ForegroundColor DarkYellow
         Write-Host "   Le graphe de dependances sera deduit du texte des expressions." -ForegroundColor DarkYellow
+        # Diagnostic pour identifier la variante en cause sur un poste ou ce
+        # correctif ne suffit pas (ex. Enedis) alors qu'il fonctionne ailleurs
+        # (ex. variante Store) : chemins/DLL/providers essayes et raison de
+        # chaque echec.
+        if ($script:AsDiag -and $script:AsDiag.Count -gt 0) {
+            Write-Host "   Diagnostic ADOMD/MSOLAP :" -ForegroundColor DarkYellow
+            $script:AsDiag | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkGray }
+        }
     }
 }
 
@@ -1159,6 +1188,18 @@ if (-not $SkipReport) {
             [void]$g[$from].Add($to)
         }
 
+        # Racines "structurelles" : un objet peut etre indispensable au modele
+        # sans jamais apparaitre dans un visuel ni dans une expression DAX (ex.
+        # colonne technique servant uniquement de cle de relation). $rootMotifs
+        # garde la raison de chaque racine directe pour la colonne Motif du CSV.
+        $rootMotifs = @{}   # cle -> HashSet des motifs ('relation','tri','hierarchie','RLS','visuel','table de dates','categorie temporelle')
+        function Add-Root { param([string]$key, [string]$motif)
+            if (-not $key) { return }
+            [void]$roots.Add($key)
+            if (-not $rootMotifs.ContainsKey($key)) { $rootMotifs[$key] = New-Object System.Collections.Generic.HashSet[string] }
+            [void]$rootMotifs[$key].Add($motif)
+        }
+
         if ($calcDep -and @($calcDep).Count -gt 0) {
             $srcDep = "DMV"
             foreach ($d in $calcDep) {
@@ -1168,7 +1209,7 @@ if (-not $SkipReport) {
                 Add-Edge $graph $from $to
                 # La securite au niveau des lignes est un usage legitime : ses
                 # dependances sont des racines au meme titre que les visuels.
-                if ($ot -eq 'ROWS_ALLOWED') { [void]$roots.Add($to) }
+                if ($ot -eq 'ROWS_ALLOWED') { Add-Root $to 'RLS' }
             }
         } else {
             $srcDep = "Analyse textuelle"
@@ -1222,14 +1263,52 @@ if (-not $SkipReport) {
                 foreach ($tp in @(P $r 'tablePermissions' @())) {
                     $rk = & $K "RLS" "$($r.name)/$(P $tp 'name')"
                     & $scan $rk (E (P $tp 'filterExpression')) (P $tp 'name')
-                    [void]$roots.Add($rk)
+                    Add-Root $rk 'RLS'
+                }
+            }
+        }
+
+        # Racines structurelles : relations, tri, hierarchies, tables/colonnes
+        # de dates. Aucune de ces trois-la n'apparait forcement dans un visuel
+        # ou une expression DAX, mais les retirer casse le modele (bug corrige :
+        # des colonnes de relation comme Absenteisme[NNI] ressortaient a tort
+        # "Supprimable" faute d'etre une racine du graphe).
+        foreach ($r in @(P $mdl 'relationships' @())) {
+            Add-Root (& $K (P $r 'fromTable') (P $r 'fromColumn')) 'relation'
+            Add-Root (& $K (P $r 'toTable')   (P $r 'toColumn'))   'relation'
+        }
+        foreach ($t in $tables) {
+            foreach ($c in @(P $t 'columns' @())) {
+                $sbc = P $c 'sortByColumn' $null
+                if ($sbc) { Add-Root (& $K $t.name $sbc) 'tri' }
+            }
+            foreach ($h in @(P $t 'hierarchies' @())) {
+                foreach ($l in @(P $h 'levels' @())) {
+                    $lc = P $l 'column' $null
+                    if ($lc) { Add-Root (& $K $t.name $lc) 'hierarchie' }
+                }
+            }
+            # Table marquee "table de dates" (Table.DataCategory = "Time") :
+            # ses colonnes, y compris techniques (numeros de mois, etc.), sont
+            # utilisees par la hierarchie de dates integree meme sans lien
+            # explicite dans le modele ni pose dans un visuel.
+            if (([string](P $t 'dataCategory' '')).Trim() -ieq 'Time') {
+                foreach ($c in @(P $t 'columns' @())) { Add-Root (& $K $t.name $c.name) 'table de dates' }
+            }
+            # Colonnes dont le DataCategory releve de la taxonomie date/heure
+            # Power BI (Year, Quarter, Month, Day, ...), meme hors table de
+            # dates marquee comme telle.
+            foreach ($c in @(P $t 'columns' @())) {
+                $dc = [string](P $c 'dataCategory' '')
+                if ($dc -match '(?i)^(year|years|quarter|quarters|month|months|day|days|date|dates|time|paddeddatetabledates)$') {
+                    Add-Root (& $K $t.name $c.name) 'categorie temporelle'
                 }
             }
         }
 
         # Racines : tout champ pose dans un visuel.
         foreach ($ref in $usedRefs) {
-            if ($ref -match '^(?<t>[^.]+)\.(?<o>.+)$') { [void]$roots.Add((& $K $Matches['t'] $Matches['o'])) }
+            if ($ref -match '^(?<t>[^.]+)\.(?<o>.+)$') { Add-Root (& $K $Matches['t'] $Matches['o']) 'visuel' }
         }
 
         # Propagation : si A est utilise, tout ce dont A depend l'est aussi.
@@ -1260,6 +1339,14 @@ if (-not $SkipReport) {
                 $verdict = if ($atteignable) { 'Intermediaire - conserver' }
                            elseif ($appelants -gt 0) { 'Chaine morte - a verifier' }
                            else { 'Supprimable' }
+                # Motif : pourquoi l'objet est retenu. Racine directe (relation,
+                # tri, hierarchie, RLS, visuel, table de dates, categorie
+                # temporelle) sinon simple dependance transitive d'une racine.
+                $motif = ""
+                if ($atteignable) {
+                    if ($rootMotifs.ContainsKey($key)) { $motif = (@($rootMotifs[$key]) | Sort-Object) -join ', ' }
+                    else { $motif = 'dependance DAX' }
+                }
                 $rowUnused.Add([pscustomobject]@{
                     Type                = $o[0]
                     Table               = $t.name
@@ -1268,6 +1355,7 @@ if (-not $SkipReport) {
                     AtteignableDepuisVisuel = $atteignable
                     NbAppelantsDirects  = $appelants
                     Verdict             = $verdict
+                    Motif               = $motif
                     Masque              = $o[2]
                     SourceAnalyse       = $srcDep
                 })
