@@ -39,6 +39,7 @@ foreach ($f in $fixtures) {
         ReportName    = $f.Name
         SkipDmv       = $true
         SansOuverture = $true
+        SansMenu      = $true
     }
     if ($repDir) { $params['PbipFolder'] = $f.FullName }
 

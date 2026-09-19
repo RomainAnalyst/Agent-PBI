@@ -15,6 +15,10 @@
 .PARAMETER SansOuverture
     N'ouvre pas l'explorateur Windows sur le dossier de sortie a la fin.
 
+.PARAMETER SansMenu
+    N'affiche pas le menu interactif de choix de prompt a la fin (utilise pour
+    les executions automatisees, ex. tests\Invoke-Tests.ps1).
+
 .EXEMPLES
     powershell -ExecutionPolicy Bypass -File .\Export-PowerBIMetadata-Full.ps1
     powershell -ExecutionPolicy Bypass -File .\Export-PowerBIMetadata-Full.ps1 -BimPath "C:\...\Model.bim"
@@ -29,7 +33,8 @@ param(
     [string]$PbipFolder        = "",
     [switch]$SkipReport,
     [switch]$SkipDmv,
-    [switch]$SansOuverture
+    [switch]$SansOuverture,
+    [switch]$SansMenu
 )
 
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -265,6 +270,111 @@ function Get-SafeName {
     $n = ($n -replace '\s+', ' ').Trim(' ', '.', '_')
     if (-not $n) { return "Modele" }
     return $n
+}
+
+# Retire les accents d'une chaine -- reserve a l'affichage console (cp850),
+# jamais aux fichiers produits qui peuvent garder les accents.
+function Remove-Diacritiques {
+    param([string]$Texte)
+    if (-not $Texte) { return $Texte }
+    $forme = $Texte.Normalize([System.Text.NormalizationForm]::FormD)
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($c in $forme.ToCharArray()) {
+        $cat = [System.Globalization.CharUnicodeInfo]::GetUnicodeCategory($c)
+        if ($cat -ne [System.Globalization.UnicodeCategory]::NonSpacingMark) { [void]$sb.Append($c) }
+    }
+    return $sb.ToString().Normalize([System.Text.NormalizationForm]::FormC)
+}
+
+# Lit docs\PROMPTS.md et docs\prompts\*.md pour batir la liste des prompts
+# disponibles. Renvoie un tableau vide si le dossier docs n'est pas present
+# (deploiement partiel) plutot que d'echouer.
+function Get-PromptsDisponibles {
+    param([string]$RepoRoot)
+    $indexPath  = Join-Path $RepoRoot "docs\PROMPTS.md"
+    $promptsDir = Join-Path $RepoRoot "docs\prompts"
+    if (-not (Test-Path $indexPath) -or -not (Test-Path $promptsDir)) { return @() }
+
+    $indexTexte    = Get-Content $indexPath -Raw -Encoding UTF8
+    $reglesCommunes = ""
+    if ($indexTexte -match '(?s)```\r?\n(.*?)\r?\n```') { $reglesCommunes = $Matches[1] }
+
+    $resultat = @()
+    $fichiersPrompt = Get-ChildItem $promptsDir -Filter "*.md" | Sort-Object Name
+    foreach ($f in $fichiersPrompt) {
+        $texte = Get-Content $f.FullName -Raw -Encoding UTF8
+        $lignes = $texte -split "\r?\n"
+
+        $titre = ($lignes | Where-Object { $_.Trim() } | Select-Object -First 1) -replace '^#\s*', '' -replace '^\d+\.\s*', ''
+
+        $fichiers = ""
+        for ($i = 0; $i -lt $lignes.Count; $i++) {
+            if ($lignes[$i] -match '^\*\*Fichiers\*\*\s*:?\s*(.*)$') {
+                $morceaux = @($Matches[1])
+                $j = $i + 1
+                while ($j -lt $lignes.Count -and $lignes[$j].Trim()) { $morceaux += $lignes[$j]; $j++ }
+                $fichiers = (($morceaux -join ' ') -replace '`', '').Trim()
+                break
+            }
+        }
+
+        $corps = ""
+        if ($texte -match '(?s)```\r?\n(.*?)\r?\n```') { $corps = $Matches[1] }
+
+        $resultat += [PSCustomObject]@{
+            Numero         = [int]($f.BaseName -replace '^0*(\d+).*', '$1')
+            Titre          = $titre
+            TitreConsole   = Remove-Diacritiques $titre
+            Fichiers       = $fichiers
+            FichiersConsole = Remove-Diacritiques $fichiers
+            Corps          = $corps
+            ReglesCommunes = $reglesCommunes
+        }
+    }
+    return $resultat
+}
+
+# Menu console : affiche la liste des prompts et copie dans le presse-papier
+# celui choisi (regles communes + fichiers requis + corps du prompt).
+function Show-MenuPrompts {
+    param($Prompts, [string]$OutputFolder)
+    if (-not $Prompts -or $Prompts.Count -eq 0) {
+        Write-Host "`n(Bibliotheque de prompts introuvable sous docs\prompts -- etape ignoree.)" -ForegroundColor DarkYellow
+        return
+    }
+    Write-Host "`n=== Choix d'un prompt a coller dans Claude Code ===" -ForegroundColor Cyan
+    foreach ($p in $Prompts) {
+        Write-Host ("  {0,2}. {1}" -f $p.Numero, $p.TitreConsole) -ForegroundColor White
+        Write-Host ("      Fichiers : {0}" -f $p.FichiersConsole) -ForegroundColor DarkGray
+    }
+    Write-Host "   0. Quitter sans copier" -ForegroundColor DarkGray
+
+    while ($true) {
+        $choix = Read-Host "`nNumero du prompt (0 pour quitter)"
+        if (-not $choix -or $choix.Trim() -eq '0') { break }
+        $p = $Prompts | Where-Object { "$($_.Numero)" -eq $choix.Trim() }
+        if (-not $p) { Write-Host "Choix invalide." -ForegroundColor Red; continue }
+
+        $texte = New-Object System.Text.StringBuilder
+        [void]$texte.AppendLine($p.ReglesCommunes.Trim())
+        [void]$texte.AppendLine("")
+        [void]$texte.AppendLine("Fichiers requis (dans $OutputFolder) : $($p.Fichiers)")
+        [void]$texte.AppendLine("")
+        [void]$texte.AppendLine($p.Corps.Trim())
+        $contenu = $texte.ToString()
+
+        try {
+            Set-Clipboard -Value $contenu
+            Write-Host "Prompt '$($p.TitreConsole)' copie dans le presse-papier." -ForegroundColor Green
+        } catch {
+            $secours = Join-Path $OutputFolder "Prompt_Choisi.txt"
+            [System.IO.File]::WriteAllText($secours, $contenu, (New-Object System.Text.UTF8Encoding($false)))
+            Write-Host "Presse-papier indisponible. Prompt ecrit dans $secours" -ForegroundColor DarkYellow
+        }
+
+        $encore = Read-Host "Choisir un autre prompt ? (o/N)"
+        if ($encore -notmatch '^[oOyY]') { break }
+    }
 }
 
 if (-not $ReportName) {
@@ -1548,4 +1658,12 @@ Write-Host "`nResume : Resume.md" -ForegroundColor Yellow
 # --- Ouverture automatique du dossier ----------------------------
 if (-not $SansOuverture) {
     try { Start-Process -FilePath "explorer.exe" -ArgumentList "`"$OutputFolder`"" | Out-Null } catch { }
+}
+
+# --- Resume console + choix du prompt a coller dans Claude Code -
+if (-not $SansMenu) {
+    Write-Host $resume.ToString()
+    $repoRootPrompts = Split-Path $PSScriptRoot -Parent
+    $promptsDisponibles = Get-PromptsDisponibles $repoRootPrompts
+    Show-MenuPrompts $promptsDisponibles $OutputFolder
 }

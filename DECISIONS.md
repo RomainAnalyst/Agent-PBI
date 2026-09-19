@@ -422,6 +422,34 @@ Le diagnostic (#013) journalise en plus, pour chaque DLL ADOMD candidate, si
 réelle — pour comparer directement à la 4.65.0.0 attendue sans avoir à lire
 une `LoaderExceptions`.
 
+---
+
+## 016 — Menu console interactif pour choisir un prompt, plutôt qu'une fenêtre graphique
+
+**Décision.** En fin d'export, si `-SansMenu` n'est pas passé, le script affiche
+le `Resume.md` dans la console puis un menu numéroté listant les prompts de
+`docs/prompts/*.md`. Le prompt choisi (règles communes de `docs/PROMPTS.md` +
+liste des fichiers requis, chemin résolu dans `$OutputFolder` + corps du
+prompt) est copié dans le presse-papier via `Set-Clipboard`, prêt à coller
+dans Claude Code. `Get-PromptsDisponibles` parse les fichiers Markdown
+existants (aucune duplication de leur contenu dans le script) ; `Remove-Diacritiques`
+retire les accents des titres/listes de fichiers uniquement pour l'affichage
+console (cp850), jamais du texte copié dans le presse-papier.
+
+**Motif.** Poste sans droits admin, PowerShell 5.1 uniquement : un menu
+console ne demande aucune dépendance ni fenêtre. `-SansMenu` évite que
+`tests\Invoke-Tests.ps1` (exécution non interactive) ne bloque sur un
+`Read-Host` — ajouté au même appel que `SkipDmv`/`SansOuverture`.
+
+**Alternative écartée.** Fenêtre WinForms : plus lisible mais plus de code à
+maintenir pour un gain limité sur ce cas d'usage ; page HTML générée : pose la
+question de l'ouverture/sandbox du navigateur sur un poste d'entreprise.
+
+**Statut.** VÉRIFIÉ sur fixture synthétique (`relations-supprimables`) : menu
+affiché, choix d'un prompt, contenu confirmé correct en UTF-8 dans le
+presse-papier (vérifié octet par octet, pas seulement à l'écran). Pas encore
+testé sur un poste réel avec un export complet (DMV + couche rapport).
+
 **Motif.** Conforme à la décision #002 (ADOMD.NET plutôt que le provider
 OLE DB) : le problème n'est pas ADOMD lui-même mais la résolution de ses
 dépendances quand le processus hôte n'est pas celui dont le dossier `bin`
