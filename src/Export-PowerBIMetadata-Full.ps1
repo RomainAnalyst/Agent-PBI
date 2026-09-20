@@ -283,11 +283,17 @@ function Find-PbixParNom {
                      (Join-Path $env:USERPROFILE 'Downloads'), $env:OneDrive, $env:OneDriveCommercial, $env:OneDriveConsumer)) {
         if ($r -and (Test-Path $r) -and -not $racines.Contains($r)) { $racines.Add($r) }
     }
-    # OneDrive entreprise : dossiers "OneDrive - <societe>" a la racine du profil.
-    foreach ($d in @(Get-ChildItem $env:USERPROFILE -Directory -Filter 'OneDrive*' -ErrorAction SilentlyContinue)) {
+    # Tous les dossiers de premier niveau du profil (OneDrive - <societe>,
+    # dossiers perso comme "Power BI Dashboard"...), sauf AppData : bruyant,
+    # lent, et jamais un emplacement de rapport.
+    foreach ($d in @(Get-ChildItem $env:USERPROFILE -Directory -ErrorAction SilentlyContinue |
+                     Where-Object { $_.Name -ne 'AppData' -and $_.Name -ne 'PowerBI_Metadata' })) {
         if (-not $racines.Contains($d.FullName)) { $racines.Add($d.FullName) }
     }
     $trouves = @()
+    # Fichiers a la racine du profil (sans descendre).
+    $trouves += @(Get-ChildItem $env:USERPROFILE -Filter '*.pbix' -File -ErrorAction SilentlyContinue |
+                  Where-Object { (Get-SafeName ([System.IO.Path]::GetFileNameWithoutExtension($_.Name))) -eq $Nom })
     foreach ($r in $racines) {
         $trouves += @(Get-ChildItem $r -Filter '*.pbix' -Recurse -Depth 4 -File -ErrorAction SilentlyContinue |
                       Where-Object { (Get-SafeName ([System.IO.Path]::GetFileNameWithoutExtension($_.Name))) -eq $Nom })
