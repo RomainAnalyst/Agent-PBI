@@ -10,7 +10,7 @@ if exist "%SystemRoot%\SysNative\WindowsPowerShell\v1.0\powershell.exe" (
     set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 )
 
-"%PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0src\Export-PowerBIMetadata-Full.ps1"
+"%PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0src\Export-PowerBIMetadata-Full.ps1" %*
 
 echo.
 pause

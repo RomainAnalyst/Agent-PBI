@@ -272,6 +272,46 @@ function Get-SafeName {
     return $n
 }
 
+# Cherche un .pbix portant le nom du rapport dans les dossiers usuels. Sert
+# quand Power BI a ete ouvert depuis l'application (Fichier > Ouvrir) : le
+# chemin n'est alors ni dans la ligne de commande, ni dans les fichiers
+# recents. Le nom est exige (jamais de devinette). Renvoie "" si rien.
+function Find-PbixParNom {
+    param([string]$Nom)
+    $racines = New-Object System.Collections.Generic.List[string]
+    foreach ($r in @([Environment]::GetFolderPath('MyDocuments'), [Environment]::GetFolderPath('Desktop'),
+                     (Join-Path $env:USERPROFILE 'Downloads'), $env:OneDrive, $env:OneDriveCommercial, $env:OneDriveConsumer)) {
+        if ($r -and (Test-Path $r) -and -not $racines.Contains($r)) { $racines.Add($r) }
+    }
+    # OneDrive entreprise : dossiers "OneDrive - <societe>" a la racine du profil.
+    foreach ($d in @(Get-ChildItem $env:USERPROFILE -Directory -Filter 'OneDrive*' -ErrorAction SilentlyContinue)) {
+        if (-not $racines.Contains($d.FullName)) { $racines.Add($d.FullName) }
+    }
+    $trouves = @()
+    foreach ($r in $racines) {
+        $trouves += @(Get-ChildItem $r -Filter '*.pbix' -Recurse -Depth 4 -File -ErrorAction SilentlyContinue |
+                      Where-Object { (Get-SafeName ([System.IO.Path]::GetFileNameWithoutExtension($_.Name))) -eq $Nom })
+    }
+    if ($trouves.Count -eq 0) { return "" }
+    $trouves = @($trouves | Sort-Object LastWriteTime -Descending)
+    if ($trouves.Count -gt 1) {
+        Write-Host "   $($trouves.Count) fichiers portent ce nom, le plus recent est retenu :" -ForegroundColor DarkYellow
+        foreach ($t in $trouves) { Write-Host "     $($t.FullName)  ($($t.LastWriteTime))" -ForegroundColor DarkYellow }
+    }
+    return $trouves[0].FullName
+}
+
+# Liste les CSV cites dans la ligne "Fichiers" d'un prompt qui n'existent pas
+# dans le dossier d'export.
+function Get-CsvManquants {
+    param([string]$Fichiers, [string]$Dossier)
+    $manq = @()
+    foreach ($m in [regex]::Matches($Fichiers, '[\w\-]+\.csv')) {
+        if (-not (Test-Path (Join-Path $Dossier $m.Value))) { $manq += $m.Value }
+    }
+    return $manq
+}
+
 # Retire les accents d'une chaine -- reserve a l'affichage console (cp850),
 # jamais aux fichiers produits qui peuvent garder les accents.
 function Remove-Diacritiques {
@@ -346,6 +386,10 @@ function Show-MenuPrompts {
     foreach ($p in $Prompts) {
         Write-Host ("  {0,2}. {1}" -f $p.Numero, $p.TitreConsole) -ForegroundColor White
         Write-Host ("      Fichiers : {0}" -f $p.FichiersConsole) -ForegroundColor DarkGray
+        $manq = @(Get-CsvManquants $p.Fichiers $OutputFolder)
+        if ($manq.Count -gt 0) {
+            Write-Host ("      ATTENTION, absents de cet export : {0}" -f ($manq -join ', ')) -ForegroundColor DarkYellow
+        }
     }
     Write-Host "   0. Quitter sans copier" -ForegroundColor DarkGray
 
@@ -1181,6 +1225,13 @@ if (-not $SkipReport) {
             }
         }
 
+        if (-not $PbixPath) {
+            # Dernier recours : rapport ouvert depuis l'application, donc ni ligne
+            # de commande ni fichier recent. Recherche par nom exact.
+            $PbixPath = Find-PbixParNom $ReportName
+            if ($PbixPath) { Write-Host "-> .pbix trouve par nom : $PbixPath" -ForegroundColor DarkGray }
+        }
+
         # Garde-fou : un .pbix devine dont le nom ne correspond pas au modele
         # charge produirait une couche rapport sans rapport avec le modele.
         if ($PbixPath -and -not $PSBoundParameters.ContainsKey('PbixPath')) {
@@ -1220,6 +1271,9 @@ if (-not $SkipReport) {
             }
         } else {
             Write-Host "-> Couche rapport ignoree : .pbix introuvable (utilise -PbixPath ou -PbipFolder)." -ForegroundColor DarkYellow
+            Write-Host "   Cherche (Documents, Bureau, Telechargements, OneDrive) : $ReportName.pbix" -ForegroundColor DarkYellow
+            Write-Host "   Les CSV 20 a 24 ne seront pas produits (prompts 2, 6, 12 incomplets)." -ForegroundColor DarkYellow
+            Write-Host "   Relance avec : -PbixPath `"C:\chemin\$ReportName.pbix`"" -ForegroundColor DarkYellow
         }
     }
 
