@@ -643,6 +643,215 @@ function Save { param([string]$Name, $Rows)
     return $true
 }
 
+# --- Sources_Par_Table.csv : nature de la source de chaque table ---
+# Nature directe d'une partition, d'apres son type et son expression M/DAX.
+# Ordre des regles impose (decision 017). Renvoie "" si aucune regle ne
+# s'applique : l'appelant tente alors de suivre une requete referencee.
+# Accents des valeurs produites via [char] : le script reste en ASCII.
+function Get-NatureDirecte { param([string]$Type, [string]$Expr)
+    $e = [char]0xE9
+    if ($Type -eq 'calculated') { return "Table calcul${e}e DAX" }
+    if ($Expr -match 'Web\.Contents' -and $Expr -match 'Excel\.Workbook') { return 'Fichier Excel' }
+    if ($Expr -match 'Web\.Contents' -and $Expr -match 'Csv\.Document') { return 'Fichier CSV' }
+    if ($Expr -match 'Table\.FromRows' -and $Expr -match 'Binary\.FromText') { return "Table saisie dans le mod${e}le" }
+    if ($Expr -match 'Odbc\.DataSource') { return 'Base ODBC' }
+    if ($Expr -match 'SharePoint\.Files') { return 'Dossier SharePoint' }
+    if ($Expr -match 'Sql\.Database') { return 'Base SQL Server' }
+    if ($Expr -match 'Folder\.Files') { return 'Dossier de fichiers' }
+    if ($Expr -match 'OData\.Feed') { return 'Flux OData' }
+    return ''
+}
+
+# Nom de la requete referencee par "Source = X" ou "Source = #"nom""
+# (une simple reference, pas un appel de fonction). "" si aucune.
+function Get-RequeteReference { param([string]$Expr)
+    $m = [regex]::Match($Expr, '(?m)\bSource\s*=\s*(?:#"((?:[^"]|"")+)"|([A-Za-z_][A-Za-z0-9_]*))\s*(?:,|\r?\n|$|\bin\b)')
+    if (-not $m.Success) { return '' }
+    if ($m.Groups[1].Success) { return $m.Groups[1].Value.Replace('""', '"') }
+    return $m.Groups[2].Value
+}
+
+# Nature d'une table : regles directes, sinon nature de la requete referencee
+# (profondeur maximale 5 pour eviter les boucles), sinon "Autre".
+function Get-NatureTable { param($Index, [string]$Nom, [int]$Prof = 0)
+    $part = @(P $Index[$Nom] 'partitions' @()) | Select-Object -First 1
+    $src  = P $part 'source' $null
+    $expr = E (P $src 'expression')
+    $n = Get-NatureDirecte ([string](P $src 'type')) $expr
+    if ($n) { return $n }
+    if ($Prof -lt 5) {
+        $ref = Get-RequeteReference $expr
+        if ($ref -and $ref -ne $Nom -and $Index.ContainsKey($ref)) {
+            return (Get-NatureTable $Index $ref ($Prof + 1))
+        }
+    }
+    return 'Autre'
+}
+
+# Objet d'une base ODBC sous la forme schema.vue, lu dans les etapes de
+# navigation. Jamais d'adresse, de chemin ni de nom d'hote.
+function Get-ObjetOdbc { param([string]$Expr)
+    $s = [regex]::Match($Expr, '\[\s*Name\s*=\s*"([^"]*)"\s*,\s*Kind\s*=\s*"Schema"\s*\]')
+    $v = [regex]::Match($Expr, '\[\s*Name\s*=\s*"([^"]*)"\s*,\s*Kind\s*=\s*"(?:View|Table)"\s*\]')
+    if ($s.Success -and $v.Success) { return ($s.Groups[1].Value + '.' + $v.Groups[1].Value) }
+    return 'Non disponible'
+}
+
+function Get-SourcesParTable { param($Tables)
+    $index = @{}
+    foreach ($t in $Tables) { $index[[string]$t.name] = $t }
+    foreach ($t in $Tables) {
+        $part   = @(P $t 'partitions' @()) | Select-Object -First 1
+        $nature = Get-NatureTable $index ([string]$t.name)
+        $objet  = 'Non disponible'
+        if ($nature -eq 'Base ODBC') { $objet = Get-ObjetOdbc (E (P (P $part 'source' $null) 'expression')) }
+        [pscustomobject]@{
+            Table      = $t.name
+            Groupe     = P $part 'queryGroup'
+            Nature     = $nature
+            Objet      = $objet
+            Mode       = P $part 'mode' 'import'
+            Chargement = if (P $t 'excludeFromModelRefresh' $false) { 'Non' } else { 'Oui' }
+        }
+    }
+}
+
+# --- Schema_Relations.svg : schema des relations inserable dans Word ---
+# Placement : tables "un" (cibles) a gauche/droite en alternance, tables
+# "plusieurs" (sources qui ne sont pas des cibles) au centre.
+function Get-SchemaBoites { param($Rels)
+    $y0 = 60
+    $nb = @{}
+    foreach ($r in $Rels) { $to = [string](P $r 'toTable'); $nb[$to] = 1 + [int]$nb[$to] }
+    $uns  = @($nb.Keys | Sort-Object @{Expression = { -$nb[$_] }}, @{Expression = { $_ }})
+    $plus = @(foreach ($r in $Rels) { $f = [string](P $r 'fromTable'); if (-not $nb.ContainsKey($f)) { $f } }) | Sort-Object -Unique
+    $plus = @($plus)
+    $box = @{}
+    for ($i = 0; $i -lt $plus.Count; $i++) {
+        $box[$plus[$i]] = @{ X = 330; Y = $y0 + 34 * $i; W = 340; H = 26; Un = $false }
+    }
+    $want = @{}; $ordre = @{}
+    for ($i = 0; $i -lt $uns.Count; $i++) {
+        $n = $uns[$i]; $ordre[$n] = $i
+        $ys = @(foreach ($r in $Rels) {
+            $f = [string](P $r 'fromTable')
+            if ([string](P $r 'toTable') -eq $n -and $box.ContainsKey($f)) { $box[$f].Y + 13 }
+        })
+        $want[$n] = if ($ys.Count -gt 0) { ($ys | Measure-Object -Average).Average } else { $y0 + 13 }
+    }
+    foreach ($cote in 0, 1) {
+        $noms = @($uns | Where-Object { ($ordre[$_] % 2) -eq $cote } |
+            Sort-Object @{Expression = { $want[$_] }}, @{Expression = { $ordre[$_] }})
+        $prev = $null
+        foreach ($n in $noms) {
+            $top = [int][math]::Round($want[$n] - 13)
+            if ($top -lt $y0) { $top = $y0 }
+            if ($null -ne $prev -and $top -lt $prev + 60) { $top = $prev + 60 }
+            $x = if ($cote -eq 0) { 20 } else { 760 }
+            $box[$n] = @{ X = $x; Y = $top; W = 220; H = 26; Un = $true }
+            $prev = $top
+        }
+    }
+    $bas = $y0
+    foreach ($k in $box.Keys) { if ($box[$k].Y + $box[$k].H -gt $bas) { $bas = $box[$k].Y + $box[$k].H } }
+    return [pscustomobject]@{ Box = $box; Order = @($plus + $uns); Bottom = $bas }
+}
+
+# Une ligne par relation, du bord de la table "un" au bord de la table
+# "plusieurs". Une 2e relation entre les memes tables est decalee de 6 px.
+function Get-SchemaTraits { param($Rels, $Box)
+    $sb = New-Object System.Text.StringBuilder
+    $vus = @{}
+    foreach ($r in $Rels) {
+        $f = [string](P $r 'fromTable'); $t = [string](P $r 'toTable')
+        if ($f -eq $t -or -not $Box.ContainsKey($f) -or -not $Box.ContainsKey($t)) { continue }
+        $cle = if ([string]::CompareOrdinal($f, $t) -lt 0) { "$f|$t" } else { "$t|$f" }
+        $k = [int]$vus[$cle]; $vus[$cle] = $k + 1
+        $a = $Box[$t]; $b = $Box[$f]
+        $ca = $a.X + $a.W / 2; $cb = $b.X + $b.W / 2
+        if ($cb -gt $ca)     { $x1 = $a.X + $a.W; $x2 = $b.X }
+        elseif ($cb -lt $ca) { $x1 = $a.X;        $x2 = $b.X + $b.W }
+        else                 { $x1 = $a.X;        $x2 = $b.X }
+        $y1 = $a.Y + 13 + 6 * $k; $y2 = $b.Y + 13 + 6 * $k
+        $style = 'stroke="#0F1AA4" stroke-width="1.2"'
+        if (-not [bool](P $r 'isActive' $true)) { $style = 'stroke="#9B1C1C" stroke-width="1.2" stroke-dasharray="6 4"' }
+        [void]$sb.AppendLine(('<line x1="{0}" y1="{1}" x2="{2}" y2="{3}" {4}/>' -f [int]$x1, [int]$y1, [int]$x2, [int]$y2, $style))
+    }
+    return $sb.ToString()
+}
+
+function Get-SchemaBoitesSvg { param($Lay)
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($n in $Lay.Order) {
+        $b = $Lay.Box[$n]
+        $max = if ($b.Un) { 30 } else { 52 }
+        $txt = if ($n.Length -gt $max) { $n.Substring(0, $max - 3) + '...' } else { $n }
+        $nomX = [System.Security.SecurityElement]::Escape($n)
+        $txtX = [System.Security.SecurityElement]::Escape($txt)
+        if ($b.Un) { $rect = 'fill="#4D59EF"'; $tx = 'fill="#FFFFFF" font-weight="bold"' }
+        else       { $rect = 'fill="#EEF0FF" stroke="#0F1AA4"'; $tx = 'fill="#0F1AA4"' }
+        [void]$sb.AppendLine(('<g><title>{0}</title><rect x="{1}" y="{2}" width="{3}" height="{4}" rx="3" {5}/>' -f $nomX, [int]$b.X, [int]$b.Y, [int]$b.W, [int]$b.H, $rect))
+        [void]$sb.AppendLine(('<text x="{0}" y="{1}" text-anchor="middle" font-size="12" {2}>{3}</text></g>' -f [int]($b.X + $b.W / 2), [int]($b.Y + 17), $tx, $txtX))
+    }
+    return $sb.ToString()
+}
+
+# Pied de page : legende, puis tables sans relation (retour a la ligne ~150 car.)
+function Get-SchemaPied { param($Tables, $Box, [int]$Y)
+    $sb = New-Object System.Text.StringBuilder
+    $leg = 'Tables &#171; un &#187; &#224; gauche et &#224; droite, tables &#171; plusieurs &#187; au centre. Trait plein : relation active. Trait rouge en pointill&#233;s : relation inactive.'
+    [void]$sb.AppendLine(('<text x="20" y="{0}" font-size="11" fill="#444444">{1}</text>' -f $Y, $leg))
+    $noms = @($Tables | ForEach-Object { [string]$_.name } | Where-Object { -not $Box.ContainsKey($_) } | Sort-Object)
+    $lignes = New-Object System.Collections.Generic.List[string]
+    $cur = 'Tables sans relation : '
+    if ($noms.Count -eq 0) { $cur += 'aucune' }
+    foreach ($n in $noms) {
+        $ajout = if ($cur -eq 'Tables sans relation : ') { $n } else { ', ' + $n }
+        if ($cur.Length + $ajout.Length -gt 150 -and $cur -ne 'Tables sans relation : ') {
+            $lignes.Add($cur + ','); $cur = $n
+        } else { $cur += $ajout }
+    }
+    $lignes.Add($cur)
+    $yy = $Y
+    foreach ($l in $lignes) {
+        $yy += 16
+        [void]$sb.AppendLine(('<text x="20" y="{0}" font-size="11" fill="#444444">{1}</text>' -f $yy, [System.Security.SecurityElement]::Escape($l)))
+    }
+    return [pscustomobject]@{ Svg = $sb.ToString(); Bas = $yy + 16 }
+}
+
+function New-SchemaSvg { param($Rels, $Tables)
+    $lay  = Get-SchemaBoites $Rels
+    $pied = Get-SchemaPied $Tables $lay.Box ($lay.Bottom + 30)
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.AppendLine('<?xml version="1.0" encoding="UTF-8"?>')
+    [void]$sb.AppendLine(('<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="{0}" viewBox="0 0 1000 {0}" font-family="Segoe UI, Arial, sans-serif">' -f $pied.Bas))
+    [void]$sb.AppendLine(('<rect width="1000" height="{0}" fill="#FFFFFF"/>' -f $pied.Bas))
+    [void]$sb.AppendLine('<text x="20" y="30" font-size="16" font-weight="bold" fill="#0F1AA4">Sch&#233;ma des relations</text>')
+    [void]$sb.Append((Get-SchemaTraits $Rels $lay.Box))
+    [void]$sb.Append((Get-SchemaBoitesSvg $lay))
+    [void]$sb.Append($pied.Svg)
+    [void]$sb.AppendLine('</svg>')
+    return $sb.ToString()
+}
+
+# Culture invariante pendant la generation (sous fr-FR, -f ecrit 12,5 et
+# casserait le SVG), restauree ensuite. Rien n'est produit sans relation.
+function Export-SchemaRelations { param($Rels, $Tables, [string]$Dossier)
+    $Rels = @($Rels)
+    if ($Rels.Count -eq 0) { return $false }
+    $th  = [System.Threading.Thread]::CurrentThread
+    $old = $th.CurrentCulture
+    try {
+        $th.CurrentCulture = [System.Globalization.CultureInfo]::InvariantCulture
+        $svg = New-SchemaSvg $Rels $Tables
+    } finally { $th.CurrentCulture = $old }
+    $p = Join-Path $Dossier 'Schema_Relations.svg'
+    [System.IO.File]::WriteAllText($p, $svg, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host ("   OK  {0,-36} {1,5} relations" -f 'Schema_Relations.svg', $Rels.Count) -ForegroundColor DarkGray
+    return $true
+}
+
 $tables = @(P $mdl 'tables' @())
 $vides  = New-Object System.Collections.Generic.List[string]
 
@@ -775,6 +984,13 @@ $rows = foreach ($r in @(P $mdl 'relationships' @())) {
     }
 }
 Save "05_Relations.csv" $rows | Out-Null
+
+# --- Sources_Par_Table.csv et Schema_Relations.svg ---------------
+# Non bloquant : un echec ici ne doit pas interrompre le reste de l'export.
+try { Save "Sources_Par_Table.csv" @(Get-SourcesParTable $tables) | Out-Null }
+catch { Write-Host "   (Sources_Par_Table.csv non produit : $($_.Exception.Message))" -ForegroundColor DarkYellow }
+try { Export-SchemaRelations @(P $mdl 'relationships' @()) $tables $OutputFolder | Out-Null }
+catch { Write-Host "   (Schema_Relations.svg non produit : $($_.Exception.Message))" -ForegroundColor DarkYellow }
 
 # --- 06 Hierarchies ----------------------------------------------
 $rows = foreach ($t in $tables) {

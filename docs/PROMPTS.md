@@ -21,20 +21,23 @@ Les fichiers joints font autorité. Contraintes de réponse :
 4. Si une information manque, dis-le et indique quel fichier la contiendrait, plutôt que de la combler. Si un fichier est absent, vide ou semble tronqué, signale-le avant de conclure.
 5. Les fichiers ne contiennent que des métadonnées. Ne demande aucune donnée métier. Ne recopie jamais de chaîne de connexion complète, d'identifiant, de mot de passe ni d'adresse e-mail de personne.
 6. Standard de l'entreprise (uniquement quand une étape marquée STANDARD te le demande) :
-   - cherche dans SharePoint le document intitulé « [À RENSEIGNER : titre exact du standard Power BI] ». Si ce texte entre crochets est encore présent tel quel, arrête-toi et dis que la référence du standard n'est pas configurée ;
+   - ouvre uniquement le fichier « Standard_developpement_Power_BI » (Word) du dossier « 01 - Standards » du référentiel SharePoint « Power BI - Référentiel de développement ». Pour les dérogations, tu peux aussi lire « Guide_de_derogation » du même dossier. N'ouvre aucun autre document de ce référentiel, notamment rien dans « 04 - BPA » ;
    - cite son titre, sa version et sa date. S'il existe plusieurs versions, retiens la plus récente et dis laquelle ;
    - ne juge la conformité que sur les règles écrites dans ce document, jamais sur d'autres documents ni sur tes préférences ;
    - si tu ne le trouves pas : écris « Standard non trouvé » en tête de ta réponse, n'émets aucun verdict de conformité, et ne fais que les analyses marquées « hors standard ».
 7. Limites connues : le mappage des visuels ne couvre ni la mise en forme conditionnelle ni les info-bulles de type page, et ne voit que ce rapport (un modèle partagé peut être utilisé ailleurs). Les verdicts de 24_Champs_NonUtilises.csv sont fiables quand SourceAnalyse = DMV, indicatifs quand SourceAnalyse = Analyse textuelle.
 8. Termine toujours par une section « Limites de cette analyse » qui liste ce que tu n'as pas pu vérifier.
+9. N'écris et ne propose aucun script ni code (C#, .csx, PowerShell, DAX de correction) et ne demande pas d'ouvrir Tabular Editor, sauf si le prompt ci-dessous demande explicitement un script. Décris chaque correction en français, sous la forme Table[Objet] : valeur actuelle → valeur attendue.
 ```
 
-## À faire une seule fois : renseigner le standard
+## Le standard
 
-Dans le bloc ci-dessus, remplacer `[À RENSEIGNER : titre exact du standard Power BI]`
-par le titre exact du document du standard, tel qu'il apparaît dans SharePoint.
-Ce document doit être lisible par tous les utilisateurs des prompts : Copilot ne
-voit que ce que l'utilisateur a le droit d'ouvrir.
+Le bloc ci-dessus désigne le fichier « Standard_developpement_Power_BI » du dossier
+« 01 - Standards » du référentiel SharePoint. S'il est renommé ou déplacé, modifier
+la règle 6 ici. Le dossier « 04 - BPA » est volontairement exclu : Copilot y trouvait
+un script Tabular Editor et le proposait à l'utilisateur. Ce document doit être lisible par tous les
+utilisateurs des prompts : Copilot ne voit que ce que l'utilisateur a le droit
+d'ouvrir.
 
 ## Utilisation avec Copilot
 
@@ -49,8 +52,8 @@ Points d'attention :
   communes demandent à Copilot de le signaler.
 - Le prompt 12 compare deux exports : préfixer les fichiers par `A_` (ancienne
   version) et `B_` (nouvelle version) avant de les joindre.
-- Le schéma Mermaid du prompt 3 peut ne pas s'afficher dans Copilot : le coller
-  dans un outil qui rend Mermaid.
+- Le prompt 3 s'appuie sur deux fichiers produits par l'export : `Sources_Par_Table.csv`
+  (nature des sources) et `Schema_Relations.svg` (schéma à insérer dans le Word).
 - Le prompt 8 contient une zone à compléter avant envoi.
 
 ## Limites à connaître
@@ -85,7 +88,7 @@ n'est rendu (le reste de l'analyse continue, marqué « hors standard »).
 |---|---|---|---|
 | 1 | [Trouver les champs inutiles](prompts/01-trouver-champs-inutiles.md) | `24_Champs_NonUtilises.csv`, `02_Colonnes.csv`, `05_Relations.csv`, `DMV_Colonnes_Memoire.csv`, `DMV_Colonnes_Cardinalite.csv` | Non |
 | 2 | [Contrôler les noms et conventions](prompts/02-controler-noms-conventions.md) | `00_Modele.csv`, `01_Tables.csv`, `02_Colonnes.csv`, `03_Mesures.csv`, `06_Hierarchies.csv`, `20_Pages.csv` | Oui |
-| 3 | [Documentation technique (pour développeurs)](prompts/03-documentation-technique.md) | `<Rapport>.model.json`, `DMV_Tables_NbLignes.csv` (facultatif) | Facultatif (plan imposé) |
+| 3 | [Documentation technique (pour développeurs)](prompts/03-documentation-technique.md) | `<Rapport>.model.json`, `DMV_Tables_NbLignes.csv` (facultatif), `01_Tables.csv` (facultatif), `20_Pages.csv` (facultatif), `DMV_Dependances.csv` (facultatif), `Sources_Par_Table.csv`, `Schema_Relations.svg` | Facultatif (plan imposé) |
 | 4 | [Relire mes mesures DAX](prompts/04-relire-mesures-dax.md) | `03_Mesures.csv`, `02_Colonnes.csv`, `DMV_Dependances.csv` | Oui |
 | 5 | [Contrôler la RLS](prompts/05-controler-rls.md) | `09_Roles_RLS.csv`, `05_Relations.csv`, `01_Tables.csv` | Oui |
 | 6 | [Aide et glossaire (pour utilisateurs)](prompts/06-aide-glossaire-utilisateurs.md) | `20_Pages.csv`, `22_Champs_Visuels.csv`, `03_Mesures.csv` | Facultatif (modèle de page) |

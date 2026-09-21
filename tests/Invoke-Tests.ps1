@@ -11,6 +11,44 @@ if (-not $fixtures) {
 }
 
 $echec = $false
+
+# Verifie Sources_Par_Table.csv (compare a attendu-sources.csv si present dans la
+# fixture) et Schema_Relations.svg (XML valide, une ligne par relation, aucune
+# virgule decimale). Renvoie la liste des erreurs, vide si tout est conforme.
+function Test-SourcesEtSchema { param([string]$FixtureDir, [string]$Dossier)
+    $err = @()
+    $bim = Get-Content (Join-Path $FixtureDir "Model.bim") -Raw | ConvertFrom-Json
+    $rels = @($bim.model.relationships)
+    $csv = Join-Path $Dossier "Sources_Par_Table.csv"
+    if (-not (Test-Path $csv)) { $err += "Sources_Par_Table.csv absent"; return $err }
+    $att = Join-Path $FixtureDir "attendu-sources.csv"
+    if (Test-Path $att) {
+        $obt = @(Import-Csv $csv -Delimiter ';' -Encoding UTF8)
+        $exp = @(Import-Csv $att -Delimiter ';' -Encoding UTF8)
+        if ($obt.Count -ne $exp.Count) { $err += "Sources_Par_Table.csv : $($obt.Count) lignes, $($exp.Count) attendues" }
+        foreach ($x in $exp) {
+            $o = $obt | Where-Object { $_.Table -eq $x.Table } | Select-Object -First 1
+            if (-not $o) { $err += "table absente : $($x.Table)"; continue }
+            foreach ($c in 'Groupe', 'Nature', 'Objet', 'Mode', 'Chargement') {
+                if ($o.$c -ne $x.$c) { $err += "$($x.Table).$c : '$($o.$c)' au lieu de '$($x.$c)'" }
+            }
+        }
+    }
+    $svg = Join-Path $Dossier "Schema_Relations.svg"
+    if ($rels.Count -eq 0) {
+        if (Test-Path $svg) { $err += "Schema_Relations.svg produit sans relation" }
+        return $err
+    }
+    if (-not (Test-Path $svg)) { $err += "Schema_Relations.svg absent"; return $err }
+    $texte = [System.IO.File]::ReadAllText($svg, [System.Text.Encoding]::UTF8)
+    try { $null = [xml]$texte } catch { $err += "Schema_Relations.svg n'est pas du XML valide : $($_.Exception.Message)" }
+    $nbLignes = ([regex]::Matches($texte, '<line ')).Count
+    $attenduL = @($rels | Where-Object { $_.fromTable -ne $_.toTable }).Count
+    if ($nbLignes -ne $attenduL) { $err += "Schema_Relations.svg : $nbLignes lignes, $attenduL relations" }
+    if ($texte -match '(x|y)[12]="\d+,\d') { $err += "Schema_Relations.svg : virgule decimale dans une coordonnee" }
+    return $err
+}
+
 $scriptExport = Join-Path (Split-Path $PSScriptRoot -Parent) "src\Export-PowerBIMetadata-Full.ps1"
 
 foreach ($f in $fixtures) {
@@ -45,7 +83,16 @@ foreach ($f in $fixtures) {
 
     & $scriptExport @params | Out-Null
 
-    $csvPath = Join-Path (Join-Path $sortie $f.Name) "24_Champs_NonUtilises.csv"
+    $dossierRapport = Join-Path $sortie $f.Name
+    $erreursSS = @(Test-SourcesEtSchema $f.FullName $dossierRapport)
+    if ($erreursSS.Count -gt 0) {
+        foreach ($e in $erreursSS) { Write-Host "    ECHEC : $e" -ForegroundColor Red }
+        $echec = $true
+    } else {
+        Write-Host "    OK : Sources_Par_Table.csv et Schema_Relations.svg conformes" -ForegroundColor Green
+    }
+
+    $csvPath = Join-Path $dossierRapport "24_Champs_NonUtilises.csv"
     if (-not (Test-Path $csvPath)) {
         Write-Host "    (pas de couche rapport dans cette fixture -- 24_Champs_NonUtilises.csv non genere)" -ForegroundColor DarkYellow
         Remove-Item $sortie -Recurse -Force -ErrorAction SilentlyContinue

@@ -498,3 +498,56 @@ avec les quatre fichiers produits (`DMV_Dependances.csv` 855 lignes,
 que `SourceAnalyse = DMV`, plus fiable que l'analyse textuelle (voir
 `docs/PROMPTS.md`). Le problème signalé au départ (aucun `DMV_*.csv` produit
 sur ce poste) est résolu.
+
+
+## 017 — Sources_Par_Table.csv et Schema_Relations.svg produits par le script, pas par l'IA
+
+**Décision.** L'export produit deux fichiers de plus, juste après `05_Relations.csv`,
+à partir des objets TMSL (`$tables`, `$mdl.relationships`) et non des CSV :
+- `Sources_Par_Table.csv` (`Table;Groupe;Nature;Objet;Mode;Chargement`) : nature
+  de la source de chaque table, règles évaluées dans l'ordre (table calculée,
+  Excel, CSV, table saisie, ODBC, requête référencée par `Source = …` à
+  profondeur 5 maximum, sinon « Autre »). Seule la **première partition** de
+  chaque table est lue. `Objet` n'est renseigné que pour ODBC (`schéma.vue`),
+  jamais d'adresse, de chemin ni de nom d'hôte.
+- `Schema_Relations.svg` : schéma des relations (tables « un » à gauche/droite
+  en alternance, tables « plusieurs » au centre), UTF-8 sans BOM, culture
+  invariante forcée pendant la génération puis restaurée (sous fr-FR, `-f`
+  écrit `12,5` et casse le SVG). Rien n'est produit sans relation. Les accents
+  du texte fixe sont des entités numériques, le script reste en ASCII.
+- Les deux blocs sont sous `try/catch` : un échec affiche un avertissement mais
+  n'interrompt pas l'export.
+
+**Motif.** Copilot classe les sources différemment d'une exécution à l'autre et
+ne rend pas le Mermaid dans Word. Un script produit toujours le même résultat.
+
+**Sort de SharePoint.Files, Sql.Database, Folder.Files, OData.Feed** (auparavant
+« Autre »). Ils reçoivent leur propre nature — « Dossier SharePoint »,
+« Base SQL Server », « Dossier de fichiers », « Flux OData » — placée après ODBC
+et avant le suivi de requête référencée. Raison : « Autre » est précisément ce
+qui pousse l'IA à deviner. `Objet` reste « Non disponible » pour eux. Les règles
+Excel/CSV (`Web.Contents`) gardent la priorité ; un `SharePoint.Files` lu avec
+`Excel.Workbook` (sans `Web.Contents`) est donc « Dossier SharePoint ».
+
+**Écart au brief.** Pour ODBC, l'objet est lu aussi avec `Kind="Table"` (pas
+seulement `Kind="View"`), car la navigation ODBC vers une table s'écrit ainsi.
+
+**Limites connues.**
+- Lisibilité du SVG : rendu constaté acceptable jusqu'à ~25 tables « plusieurs » ;
+  à 30 tables et 6 dimensions très interconnectées, les faisceaux de lignes
+  deviennent denses (hauteur ≈ 1100 px) mais restent lisibles ; au-delà, le
+  schéma n'est plus un outil de lecture.
+- Une relation entre deux tables « un » (flocon : une table à la fois cible et
+  source) est tracée en ligne droite d'un bord à l'autre et peut traverser la
+  colonne centrale. L'algorithme spécifié ne couvre pas ce cas.
+- Les relations d'une table « un » sans aucune table « plusieurs » liée sont
+  placées en haut de leur colonne.
+
+**Statut.** `TESTÉ SUR FIXTURE` : `tests/fixtures/sources-et-schema` (11 tables,
+toutes les règles, chaîne de requêtes, boucle, ODBC, exclusion d'actualisation,
+relation inactive, double relation) avec `attendu-sources.csv`, et contrôles
+génériques du SVG dans `Invoke-Tests.ps1` (XML valide, une ligne par relation,
+pas de virgule décimale) sous culture fr-FR. Rendu visuel du SVG contrôlé dans
+Edge (fixture et modèle synthétique de 30 tables). Run réel sur un modèle Power
+BI ouvert : `NON TESTÉ`. Regex de détection d'après la forme habituelle du M,
+non confrontées à des expressions réelles de l'entreprise.

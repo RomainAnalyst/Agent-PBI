@@ -1,0 +1,332 @@
+{
+    "name":  "FixtureSources",
+    "compatibilityLevel":  1567,
+    "model":  {
+                  "culture":  "fr-FR",
+                  "defaultMode":  "import",
+                  "tables":  [
+                                 {
+                                     "name":  "Ventes",
+                                     "columns":  [
+                                                     {
+                                                         "sourceColumn":  "Id",
+                                                         "name":  "Id",
+                                                         "dataType":  "string"
+                                                     },
+                                                     {
+                                                         "sourceColumn":  "Cle",
+                                                         "name":  "Cle",
+                                                         "dataType":  "string"
+                                                     }
+                                                 ],
+                                     "partitions":  [
+                                                        {
+                                                            "name":  "Ventes",
+                                                            "mode":  "import",
+                                                            "source":  {
+                                                                           "type":  "m",
+                                                                           "expression":  "let Source = Excel.Workbook(Web.Contents(\"https://x/a.xlsx\"), null, true) in Source"
+                                                                       },
+                                                            "queryGroup":  "Sources"
+                                                        }
+                                                    ]
+                                 },
+                                 {
+                                     "name":  "Produits",
+                                     "columns":  [
+                                                     {
+                                                         "sourceColumn":  "Id",
+                                                         "name":  "Id",
+                                                         "dataType":  "string"
+                                                     },
+                                                     {
+                                                         "sourceColumn":  "Cle",
+                                                         "name":  "Cle",
+                                                         "dataType":  "string"
+                                                     }
+                                                 ],
+                                     "partitions":  [
+                                                        {
+                                                            "name":  "Produits",
+                                                            "mode":  "import",
+                                                            "source":  {
+                                                                           "type":  "m",
+                                                                           "expression":  "let Source = Csv.Document(Web.Contents(\"https://x/p.csv\"),[Delimiter=\";\"]) in Source"
+                                                                       }
+                                                        }
+                                                    ]
+                                 },
+                                 {
+                                     "name":  "Saisie",
+                                     "columns":  [
+                                                     {
+                                                         "sourceColumn":  "Id",
+                                                         "name":  "Id",
+                                                         "dataType":  "string"
+                                                     },
+                                                     {
+                                                         "sourceColumn":  "Cle",
+                                                         "name":  "Cle",
+                                                         "dataType":  "string"
+                                                     }
+                                                 ],
+                                     "partitions":  [
+                                                        {
+                                                            "name":  "Saisie",
+                                                            "mode":  "import",
+                                                            "source":  {
+                                                                           "type":  "m",
+                                                                           "expression":  "let Source = Table.FromRows(Json.Document(Binary.Decompress(Binary.FromText(\"i45W\", BinaryEncoding.Base64), Compression.Deflate))) in Source"
+                                                                       }
+                                                        }
+                                                    ]
+                                 },
+                                 {
+                                     "name":  "Calendrier",
+                                     "columns":  [
+                                                     {
+                                                         "sourceColumn":  "Id",
+                                                         "name":  "Id",
+                                                         "dataType":  "string"
+                                                     },
+                                                     {
+                                                         "sourceColumn":  "Cle",
+                                                         "name":  "Cle",
+                                                         "dataType":  "string"
+                                                     }
+                                                 ],
+                                     "partitions":  [
+                                                        {
+                                                            "name":  "Calendrier",
+                                                            "mode":  "import",
+                                                            "source":  {
+                                                                           "type":  "calculated",
+                                                                           "expression":  "CALENDAR(DATE(2020,1,1), DATE(2030,12,31))"
+                                                                       }
+                                                        }
+                                                    ]
+                                 },
+                                 {
+                                     "name":  "Stock",
+                                     "columns":  [
+                                                     {
+                                                         "sourceColumn":  "Id",
+                                                         "name":  "Id",
+                                                         "dataType":  "string"
+                                                     },
+                                                     {
+                                                         "sourceColumn":  "Cle",
+                                                         "name":  "Cle",
+                                                         "dataType":  "string"
+                                                     }
+                                                 ],
+                                     "partitions":  [
+                                                        {
+                                                            "name":  "Stock",
+                                                            "mode":  "directQuery",
+                                                            "source":  {
+                                                                           "type":  "m",
+                                                                           "expression":  "let Source = Odbc.DataSource(\"dsn=SECRET\", [HierarchicalNavigation=true]), S = Source{[Name=\"dbo\",Kind=\"Schema\"]}[Data], V = S{[Name=\"vw_stock\",Kind=\"View\"]}[Data] in V"
+                                                                       }
+                                                        }
+                                                    ]
+                                 },
+                                 {
+                                     "name":  "Ventes Propres",
+                                     "columns":  [
+                                                     {
+                                                         "sourceColumn":  "Id",
+                                                         "name":  "Id",
+                                                         "dataType":  "string"
+                                                     },
+                                                     {
+                                                         "sourceColumn":  "Cle",
+                                                         "name":  "Cle",
+                                                         "dataType":  "string"
+                                                     }
+                                                 ],
+                                     "partitions":  [
+                                                        {
+                                                            "name":  "Ventes Propres",
+                                                            "mode":  "import",
+                                                            "source":  {
+                                                                           "type":  "m",
+                                                                           "expression":  "let\n    Source = Ventes,\n    F = Table.SelectRows(Source, each true)\nin\n    F"
+                                                                       }
+                                                        }
+                                                    ]
+                                 },
+                                 {
+                                     "name":  "Ventes_Finale",
+                                     "columns":  [
+                                                     {
+                                                         "sourceColumn":  "Id",
+                                                         "name":  "Id",
+                                                         "dataType":  "string"
+                                                     },
+                                                     {
+                                                         "sourceColumn":  "Cle",
+                                                         "name":  "Cle",
+                                                         "dataType":  "string"
+                                                     }
+                                                 ],
+                                     "partitions":  [
+                                                        {
+                                                            "name":  "Ventes_Finale",
+                                                            "mode":  "import",
+                                                            "source":  {
+                                                                           "type":  "m",
+                                                                           "expression":  "let Source = #\"Ventes Propres\", F = Source in F"
+                                                                       }
+                                                        }
+                                                    ]
+                                 },
+                                 {
+                                     "name":  "BoucleA",
+                                     "columns":  [
+                                                     {
+                                                         "sourceColumn":  "Id",
+                                                         "name":  "Id",
+                                                         "dataType":  "string"
+                                                     },
+                                                     {
+                                                         "sourceColumn":  "Cle",
+                                                         "name":  "Cle",
+                                                         "dataType":  "string"
+                                                     }
+                                                 ],
+                                     "partitions":  [
+                                                        {
+                                                            "name":  "BoucleA",
+                                                            "mode":  "import",
+                                                            "source":  {
+                                                                           "type":  "m",
+                                                                           "expression":  "let Source = BoucleB in Source"
+                                                                       }
+                                                        }
+                                                    ]
+                                 },
+                                 {
+                                     "name":  "BoucleB",
+                                     "columns":  [
+                                                     {
+                                                         "sourceColumn":  "Id",
+                                                         "name":  "Id",
+                                                         "dataType":  "string"
+                                                     },
+                                                     {
+                                                         "sourceColumn":  "Cle",
+                                                         "name":  "Cle",
+                                                         "dataType":  "string"
+                                                     }
+                                                 ],
+                                     "partitions":  [
+                                                        {
+                                                            "name":  "BoucleB",
+                                                            "mode":  "import",
+                                                            "source":  {
+                                                                           "type":  "m",
+                                                                           "expression":  "let Source = BoucleA in Source"
+                                                                       }
+                                                        }
+                                                    ]
+                                 },
+                                 {
+                                     "name":  "BaseSql",
+                                     "columns":  [
+                                                     {
+                                                         "sourceColumn":  "Id",
+                                                         "name":  "Id",
+                                                         "dataType":  "string"
+                                                     },
+                                                     {
+                                                         "sourceColumn":  "Cle",
+                                                         "name":  "Cle",
+                                                         "dataType":  "string"
+                                                     }
+                                                 ],
+                                     "partitions":  [
+                                                        {
+                                                            "name":  "BaseSql",
+                                                            "mode":  "import",
+                                                            "source":  {
+                                                                           "type":  "m",
+                                                                           "expression":  "let Source = Sql.Database(\"serveur\", \"base\") in Source"
+                                                                       }
+                                                        }
+                                                    ],
+                                     "excludeFromModelRefresh":  true
+                                 },
+                                 {
+                                     "name":  "Orpheline",
+                                     "columns":  [
+                                                     {
+                                                         "sourceColumn":  "Id",
+                                                         "name":  "Id",
+                                                         "dataType":  "string"
+                                                     },
+                                                     {
+                                                         "sourceColumn":  "Cle",
+                                                         "name":  "Cle",
+                                                         "dataType":  "string"
+                                                     }
+                                                 ],
+                                     "partitions":  [
+                                                        {
+                                                            "name":  "Orpheline",
+                                                            "mode":  "import",
+                                                            "source":  {
+                                                                           "type":  "m",
+                                                                           "expression":  "let Source = 1 in Source"
+                                                                       }
+                                                        }
+                                                    ]
+                                 }
+                             ],
+                  "relationships":  [
+                                        {
+                                            "name":  "Ventes-Calendrier-Id",
+                                            "fromTable":  "Ventes",
+                                            "fromColumn":  "Id",
+                                            "toTable":  "Calendrier",
+                                            "toColumn":  "Id"
+                                        },
+                                        {
+                                            "name":  "Ventes-Calendrier-Cle",
+                                            "fromTable":  "Ventes",
+                                            "fromColumn":  "Cle",
+                                            "toTable":  "Calendrier",
+                                            "toColumn":  "Cle",
+                                            "isActive":  false
+                                        },
+                                        {
+                                            "name":  "Ventes-Produits-Id",
+                                            "fromTable":  "Ventes",
+                                            "fromColumn":  "Id",
+                                            "toTable":  "Produits",
+                                            "toColumn":  "Id"
+                                        },
+                                        {
+                                            "name":  "Stock-Produits-Id",
+                                            "fromTable":  "Stock",
+                                            "fromColumn":  "Id",
+                                            "toTable":  "Produits",
+                                            "toColumn":  "Cle"
+                                        },
+                                        {
+                                            "name":  "Saisie-Calendrier-Id",
+                                            "fromTable":  "Saisie",
+                                            "fromColumn":  "Id",
+                                            "toTable":  "Calendrier",
+                                            "toColumn":  "Id"
+                                        },
+                                        {
+                                            "name":  "Ventes_Finale-Ventes-Id",
+                                            "fromTable":  "Ventes_Finale",
+                                            "fromColumn":  "Id",
+                                            "toTable":  "Ventes",
+                                            "toColumn":  "Cle"
+                                        }
+                                    ]
+              }
+}
