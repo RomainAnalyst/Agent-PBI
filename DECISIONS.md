@@ -667,3 +667,99 @@ avec le contenu attendu (balises `<STANDARD_VERSION>`/`<TEMPLATE_INFO>`
 substituées dans 3a, absentes par construction de 3b, aucune balise
 résiduelle dans les deux cas). `.\tests\Invoke-Tests.ps1` repasse. Non testé
 via le menu réel du script principal ni avec un document Word réel.
+
+---
+
+## 021 — Sauts de ligne DAX neutralisés dans les CSV ; console forcée en UTF-8 dans le `.bat`
+
+**Décision (1).** Nouvelle fonction `E-Csv`, à côté de `E` : appelle `E` puis
+remplace tout saut de ligne réel (`\r?\n\s*`) par un espace unique. Utilisée
+à la place de `E` pour les trois colonnes de CSV qui recopient une expression
+DAX pouvant être multiligne : `Expression` de `02_Colonnes.csv` (colonnes
+calculées), `Expression_DAX` de `03_Mesures.csv` et `Expression_DAX` de
+`07_GroupesDeCalcul.csv`. `$ReportName.model.json` continue d'utiliser `E`
+sans changement, pour garder la mise en forme d'origine de l'expression dans
+le JSON. Les autres usages de `E` (nature d'une source, dépendances déduites
+du texte) restent inchangés : ce ne sont pas des colonnes de texte affichées
+telles quelles, mais des chaînes analysées par le script lui-même.
+
+**Motif.** Un saut de ligne réel à l'intérieur d'un champ délimité par `;`
+reste valide au sens du format CSV (le champ est encadré de guillemets par
+`Export-Csv`), mais un lecteur qui découpe naïvement par ligne physique
+plutôt que par enregistrement CSV complet désynchronise les colonnes
+suivantes. Une expression DAX/M à plusieurs lignes est un cas courant
+(`CALCULATE` avec plusieurs arguments, `VAR`/`RETURN`).
+
+**Statut (1).** `TESTÉ SUR FIXTURE` : `E`/`E-Csv` extraites et exécutées
+isolément sur une expression donnée à la fois comme tableau de lignes (forme
+que prend parfois le TMSL, décision déjà connue) et comme chaîne unique
+contenant `` `r`n `` internes ; dans les deux cas, `E-Csv` produit une seule
+ligne sans saut interne. Un CSV construit avec cette valeur et relu confirme
+qu'il ne compte que le nombre de lignes physiques attendu (un en-tête + une
+ligne par enregistrement). `.\tests\Invoke-Tests.ps1` repasse (les fixtures du
+dépôt n'ont pas d'expression multiligne, ce chemin n'y est pas exercé).
+
+**Décision (2).** `Lancer-Export.bat` exécute `chcp 65001 > nul` juste après
+`@echo off`, avant tout le reste.
+
+**Motif.** Un caractère accentué produit à l'exécution (dans un chemin de
+fichier, un nom de rapport, un message d'erreur .NET) peut être mal restitué
+par la console selon la page de code active au lancement du process
+PowerShell. Passer la console en UTF-8 avant de lancer PowerShell élimine
+cette dépendance à la page de code héritée du poste.
+
+**Statut (2).** `VÉRIFIÉ` (mécanisme reproduit sur ce poste, pas sur un poste
+d'entreprise réel) : un `.bat` minimal (CRLF, ASCII, comme `Lancer-Export.bat`)
+lançant `powershell -Command` dont la sortie contient des caractères
+accentués générés à l'exécution (pas codés en dur dans le `.bat`) a été
+exécuté après avoir forcé la console en CP850 (`chcp 850`, la page de code
+d'entreprise visée par ce dépôt) :
+- sans `chcp 65001` en tête du `.bat` : sortie corrompue, ex.
+  `Rapport : �valuation Cha�ne` (caractère de remplacement) ;
+- avec `chcp 65001` en tête : sortie correcte, `Rapport : évaluation Chaîne`,
+  code de retour PowerShell inchangé (0).
+
+`chcp` ne demande aucun droit administrateur (changement de la page de code
+de la seule session console courante). **Non testé** : le run réel via
+`Lancer-Export.bat` sur un poste d'entreprise avec Power BI ouvert, où
+d'autres particularités de la console (police, largeur) pourraient exister
+mais n'ont pas été observées ici.
+
+---
+
+## 022 — Frontière explicite entre le BPA (Tabular Editor), les prompts d'audit et la documentation (3a/3b)
+
+**Décision.** La règle commune 6 (`docs/PROMPTS.md`, section Standard) gagne
+une clause : si le standard désigne une règle comme déjà vérifiée par le BPA
+de Tabular Editor (`BPARules.json`), le prompt ne recalcule pas de verdict
+pour cette règle — il écrit « Couverte par le BPA de Tabular Editor, hors
+périmètre de ce prompt » et passe à la suivante. Une nouvelle section
+« Répartition BPA / prompts d'audit / documentation » explicite le partage :
+le BPA (déterministe, sur le modèle TOM directement) pour les règles
+structurelles qu'il sait contrôler ; les prompts d'audit (1, 2, 4, 5, 9) pour
+ce que le BPA ne couvre pas ou couvre partiellement (DAX, RLS, champs
+inutilisés vus depuis le rapport, conventions de nommage, Power Query) ; les
+prompts 3a/3b pour la documentation descriptive (règle L5) sans aucun
+verdict, les verdicts relevant des fiches de conformité (règle L2). La règle
+« Ce prompt n'émet aucun verdict de conformité » de 3a et 3b est complétée
+pour pointer explicitement vers le BPA et les prompts d'audit.
+
+**Motif.** Le LLM travaille sur des CSV aplatis produits par ce dépôt, pas
+sur le modèle TOM lui-même : pour les règles que le BPA vérifie déjà de
+façon déterministe, une nouvelle vérification par le LLM est strictement
+moins fiable et risque de produire un verdict divergent de celui du BPA sans
+que personne ne s'en aperçoive. Le mécanisme retenu ne fige aucun
+numéro de règle dans le code ou les prompts : il renvoie au standard
+lui-même pour dire quelles règles sont couvertes par le BPA, ce qui survit à
+une renumérotation du standard sans toucher au dépôt.
+
+**Statut.** `TESTÉ SUR FIXTURE` (changement de documentation, pas de logique
+d'export) : `Get-PromptsDisponibles`/`Show-MenuPrompts` extraites et
+exécutées isolément confirment que la nouvelle clause de la règle 6 est bien
+présente dans le texte copié dans le presse-papier pour un prompt
+standard-gated (prompt 2), et que les 15 prompts (1, 2, 3a, 3b, 4-13)
+continuent d'apparaître correctement dans le menu après l'ajout.
+`.\tests\Invoke-Tests.ps1` repasse. Non testé : un cas réel où Copilot
+applique effectivement cette clause face à un standard qui désigne une règle
+comme couverte par le BPA — le contenu réel du standard de l'entreprise n'a
+pas été consulté pour cette session.

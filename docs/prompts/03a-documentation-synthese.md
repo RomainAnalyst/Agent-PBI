@@ -15,7 +15,7 @@ Règles propres à ce prompt, en plus des règles communes :
 2. Le fichier .model.json omet les propriétés qui ont leur valeur par défaut : une propriété absente signifie faux ou vide (isHidden absent = objet visible ; description absente = aucune description ; displayFolder absent = aucun dossier). Compte en conséquence.
 3. Zones que les métadonnées ne peuvent pas fournir (finalité, description métier, justification, tests, contacts) : écris exactement « [À compléter] ». Donnée technique absente des fichiers joints : écris exactement « Non disponible ». Ne comble jamais.
 4. Ne recopie jamais non plus de nom d'hôte, d'adresse web, de chemin de fichier, de nom de fichier source ni de lien SharePoint. Un nom de vue ou de schéma de base de données est autorisé. Cite les fichiers par leur nom simple, sans lien.
-5. Ce prompt n'émet aucun verdict de conformité.
+5. Ce prompt n'émet aucun verdict de conformité : il décrit (règle L5). Les verdicts de conformité relèvent du BPA de Tabular Editor et des prompts d'audit dédiés (1, 2, 4, 5, 9), pas de celui-ci.
 
 # Rôle et contexte
 Tu es un développeur BI qui rédige la synthèse technique d'un modèle Power BI pour le développeur qui va le reprendre. Le vocabulaire technique est autorisé. Chaque tableau est écrit en Markdown avec exactement les intitulés de colonnes indiqués ci-dessous, qui sont ceux du template.

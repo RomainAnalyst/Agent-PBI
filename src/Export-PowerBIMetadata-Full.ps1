@@ -644,6 +644,14 @@ function E { param($v)
     if ($v -is [System.Array]) { return ($v -join "`r`n") }
     return [string]$v
 }
+# Pour les colonnes CSV uniquement (pas le JSON du modele) : un saut de ligne
+# reel a l'interieur d'un champ delimite par ";" desynchronise le decoupage
+# en lignes d'un lecteur de CSV naif. Remplace tout saut de ligne par un espace.
+function E-Csv { param($v)
+    $txt = E $v
+    if (-not $txt) { return "" }
+    return ($txt -replace '\r?\n\s*', ' ').Trim()
+}
 function Save { param([string]$Name, $Rows)
     # PIEGE PS 5.1 : "@($Rows)" sur une List[object] VIDE declenche une
     # ArgumentException dans le binder dynamique (PSToObjectArrayBinder).
@@ -938,7 +946,7 @@ $rows = foreach ($t in $tables) {
             IsHidden      = P $c 'isHidden' $false
             IsNullable    = P $c 'isNullable' $true
             SourceColumn  = P $c 'sourceColumn'
-            Expression    = E (P $c 'expression')
+            Expression    = E-Csv (P $c 'expression')
             LineageTag    = P $c 'lineageTag'
         }
     }
@@ -957,7 +965,7 @@ $rows = foreach ($t in $tables) {
             FormatString           = P $m 'formatString'
             DisplayFolder          = P $m 'displayFolder'
             DataCategory           = P $m 'dataCategory'
-            Expression_DAX         = E (P $m 'expression')
+            Expression_DAX         = E-Csv (P $m 'expression')
             FormatStringExpression = if ($fsd) { E (P $fsd 'expression') } else { "" }
             LineageTag             = P $m 'lineageTag'
         }
@@ -1036,7 +1044,7 @@ $rows = foreach ($t in $tables) {
             Precedence             = P $cg 'precedence'
             Ordinal                = P $ci 'ordinal'
             CalculationItem        = $ci.name
-            Expression_DAX         = E (P $ci 'expression')
+            Expression_DAX         = E-Csv (P $ci 'expression')
             FormatStringExpression = if ($fsd) { E (P $fsd 'expression') } else { "" }
             Description            = E (P $ci 'description')
         }

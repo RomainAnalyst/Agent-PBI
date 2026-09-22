@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 > nul
 REM Lance l'export des metadonnees du rapport Power BI Desktop actuellement ouvert.
 REM Force le PowerShell 64 bits (necessaire pour les DMV via le provider MSOLAP).
 

@@ -24,6 +24,7 @@ Les fichiers joints font autorité. Contraintes de réponse :
    - ouvre uniquement le fichier « Standard_developpement_Power_BI » (Word) du dossier « 01 - Standards » du référentiel SharePoint « Power BI - Référentiel de développement ». Pour les dérogations, tu peux aussi lire « Guide_de_derogation » du même dossier. N'ouvre aucun autre document de ce référentiel, notamment rien dans « 04 - BPA » ;
    - cite son titre, sa version et sa date. S'il existe plusieurs versions, retiens la plus récente et dis laquelle ;
    - ne juge la conformité que sur les règles écrites dans ce document, jamais sur d'autres documents ni sur tes préférences ;
+   - si le document désigne une règle comme déjà vérifiée par un outil (Tabular Editor, Best Practice Analyzer, BPARules.json), ne recalcule pas de verdict pour cette règle : écris « Couverte par le BPA de Tabular Editor, hors périmètre de ce prompt » et passe à la suivante ;
    - si tu ne le trouves pas : écris « Standard non trouvé » en tête de ta réponse, n'émets aucun verdict de conformité, et ne fais que les analyses marquées « hors standard ».
 7. Limites connues : le mappage des visuels ne couvre ni la mise en forme conditionnelle ni les info-bulles de type page, et ne voit que ce rapport (un modèle partagé peut être utilisé ailleurs). Les verdicts de 24_Champs_NonUtilises.csv sont fiables quand SourceAnalyse = DMV, indicatifs quand SourceAnalyse = Analyse textuelle.
 8. Termine toujours par une section « Limites de cette analyse » qui liste ce que tu n'as pas pu vérifier.
@@ -38,6 +39,32 @@ la règle 6 ici. Le dossier « 04 - BPA » est volontairement exclu : Copilot y 
 un script Tabular Editor et le proposait à l'utilisateur. Ce document doit être lisible par tous les
 utilisateurs des prompts : Copilot ne voit que ce que l'utilisateur a le droit
 d'ouvrir.
+
+## Répartition BPA / prompts d'audit / documentation
+
+Trois familles d'outils se partagent la vérification d'un modèle, sans se
+recouvrir :
+
+- **Le BPA de Tabular Editor** (`BPARules.json`, exécuté via le CLI ou le GUI
+  de Tabular Editor, hors de ce dépôt) vérifie de façon déterministe les
+  règles structurelles que son moteur sait contrôler directement sur le
+  modèle (TOM), par exemple les identifiants marqués R5, R6, R7, R12, R13,
+  R24, R25 du standard. Aucun prompt ne doit recalculer un verdict pour une
+  règle que le standard désigne comme couverte par le BPA (règle commune 6
+  ci-dessus) : le LLM travaille sur des CSV aplatis, moins fiables pour ce
+  type de contrôle qu'un moteur qui parcourt le modèle lui-même.
+- **Les prompts d'audit dédiés** (1, 2, 4, 5, 9) ciblent ce que le BPA ne
+  couvre pas ou ne couvre que partiellement : le DAX (mesures illisibles,
+  anti-patterns — prompt 4), la RLS (prompt 5), les champs inutilisés du
+  point de vue du rapport — pages, visuels, filtres, titres dynamiques —
+  qu'un outil limité au modèle ne peut pas voir (prompt 1), et les
+  conventions de nommage au sens large (prompt 2). Le prompt 9 couvre Power
+  Query, hors du périmètre du BPA (modèle tabulaire uniquement).
+- **Les prompts 3a et 3b** ne vérifient aucune conformité : leur seule
+  responsabilité est de décrire le modèle (règle L5 du standard — gabarit de
+  documentation technique). Un verdict de conformité, qu'il vienne du BPA ou
+  d'un prompt d'audit, relève des fiches de conformité (règle L2), pas de la
+  documentation descriptive.
 
 ## Utilisation avec Copilot
 
