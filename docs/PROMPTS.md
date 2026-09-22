@@ -52,8 +52,14 @@ Points d'attention :
   communes demandent à Copilot de le signaler.
 - Le prompt 12 compare deux exports : préfixer les fichiers par `A_` (ancienne
   version) et `B_` (nouvelle version) avant de les joindre.
-- Le prompt 3 s'appuie sur deux fichiers produits par l'export : `Sources_Par_Table.csv`
-  (nature des sources) et `Schema_Relations.svg` (schéma à insérer dans le Word).
+- Le prompt 3 est scindé en deux : 3a (synthèse du modèle) et 3b (fiche détaillée
+  par lot de 5 à 8 tables), pour que Copilot n'ait plus à choisir lui-même entre
+  les deux intentions. 3a s'appuie sur trois fichiers produits par l'export :
+  `Sources_Par_Table.csv` (nature des sources), `Schema_Relations.svg` (schéma à
+  insérer dans le Word) et `Volumetrie_Propre.csv` (nombre de lignes par table,
+  déjà filtré et trié). La référence au standard de développement (Annexe A de
+  3a) est aussi insérée automatiquement par le script depuis
+  `config/standard-reference.json`, sans recherche par l'IA.
 - Le prompt 8 contient une zone à compléter avant envoi.
 
 ## Limites à connaître
@@ -88,7 +94,8 @@ n'est rendu (le reste de l'analyse continue, marqué « hors standard »).
 |---|---|---|---|
 | 1 | [Trouver les champs inutiles](prompts/01-trouver-champs-inutiles.md) | `24_Champs_NonUtilises.csv`, `02_Colonnes.csv`, `05_Relations.csv`, `DMV_Colonnes_Memoire.csv`, `DMV_Colonnes_Cardinalite.csv` | Non |
 | 2 | [Contrôler les noms et conventions](prompts/02-controler-noms-conventions.md) | `00_Modele.csv`, `01_Tables.csv`, `02_Colonnes.csv`, `03_Mesures.csv`, `06_Hierarchies.csv`, `20_Pages.csv` | Oui |
-| 3 | [Documentation technique (pour développeurs)](prompts/03-documentation-technique.md) | `<Rapport>.model.json`, `DMV_Tables_NbLignes.csv` (facultatif), `01_Tables.csv` (facultatif), `20_Pages.csv` (facultatif), `DMV_Dependances.csv` (facultatif), `Sources_Par_Table.csv`, `Schema_Relations.svg` | Facultatif (plan imposé) |
+| 3a | [Documentation technique — Synthèse du modèle](prompts/03a-documentation-synthese.md) | `<Rapport>.model.json`, `Sources_Par_Table.csv`, `Volumetrie_Propre.csv` (facultatif), `01_Tables.csv` (facultatif), `20_Pages.csv` (facultatif), `Schema_Relations.svg` | Non (référence insérée automatiquement, aucun verdict de conformité) |
+| 3b | [Documentation technique — Fiches tables](prompts/03b-documentation-tables.md) | `<Rapport>.model.json`, `01_Tables.csv` (facultatif), `Sources_Par_Table.csv`, `DMV_Dependances.csv` (facultatif) | Non |
 | 4 | [Relire mes mesures DAX](prompts/04-relire-mesures-dax.md) | `03_Mesures.csv`, `02_Colonnes.csv`, `DMV_Dependances.csv` | Oui |
 | 5 | [Contrôler la RLS](prompts/05-controler-rls.md) | `09_Roles_RLS.csv`, `05_Relations.csv`, `01_Tables.csv` | Oui |
 | 6 | [Aide et glossaire (pour utilisateurs)](prompts/06-aide-glossaire-utilisateurs.md) | `20_Pages.csv`, `22_Champs_Visuels.csv`, `03_Mesures.csv` | Facultatif (modèle de page) |

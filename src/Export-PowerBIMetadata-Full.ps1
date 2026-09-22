@@ -38,7 +38,7 @@ param(
 )
 
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
-$port = $null; $database = $null; $conn = $null; $calcDep = $null
+$port = $null; $database = $null; $conn = $null; $calcDep = $null; $storageTables = $null
 $asCtx = $null       # contexte de requete Analysis Services (ADOMD ou ADODB)
 $ProduitPBI = ""     # "Power BI Desktop" ou "Power BI Desktop for Report Server"
 $script:AsResolveDir        = $null    # dossier de recherche courant du gestionnaire AssemblyResolve
@@ -351,7 +351,7 @@ function Get-PromptsDisponibles {
         $texte = Get-Content $f.FullName -Raw -Encoding UTF8
         $lignes = $texte -split "\r?\n"
 
-        $titre = ($lignes | Where-Object { $_.Trim() } | Select-Object -First 1) -replace '^#\s*', '' -replace '^\d+\.\s*', ''
+        $titre = ($lignes | Where-Object { $_.Trim() } | Select-Object -First 1) -replace '^#\s*', '' -replace '^\d+[a-zA-Z]?\.\s*', ''
 
         $fichiers = ""
         for ($i = 0; $i -lt $lignes.Count; $i++) {
@@ -368,7 +368,9 @@ function Get-PromptsDisponibles {
         if ($texte -match '(?s)```\r?\n(.*?)\r?\n```') { $corps = $Matches[1] }
 
         $resultat += [PSCustomObject]@{
-            Numero         = [int]($f.BaseName -replace '^0*(\d+).*', '$1')
+            # Pas de cast [int] : un identifiant comme "3a" (prompts 03a/03b,
+            # scission d'un meme prompt) n'est pas un entier valide.
+            Numero         = ($f.BaseName -replace '^0*(\d+[a-zA-Z]?).*', '$1')
             Titre          = $titre
             TitreConsole   = Remove-Diacritiques $titre
             Fichiers       = $fichiers
@@ -383,7 +385,7 @@ function Get-PromptsDisponibles {
 # Menu console : affiche la liste des prompts et copie dans le presse-papier
 # celui choisi (regles communes + fichiers requis + corps du prompt).
 function Show-MenuPrompts {
-    param($Prompts, [string]$OutputFolder)
+    param($Prompts, [string]$OutputFolder, [string]$RepoRoot)
     if (-not $Prompts -or $Prompts.Count -eq 0) {
         Write-Host "`n(Bibliotheque de prompts introuvable sous docs\prompts -- etape ignoree.)" -ForegroundColor DarkYellow
         return
@@ -412,6 +414,19 @@ function Show-MenuPrompts {
         [void]$texte.AppendLine("")
         [void]$texte.AppendLine($p.Corps.Trim())
         $contenu = $texte.ToString()
+
+        # Remplacement des balises <STANDARD_VERSION> / <TEMPLATE_INFO> par le
+        # contenu de config\standard-reference.json (evite toute recherche
+        # SharePoint par l'IA : le fichier local fait autorite).
+        $refPath = Join-Path $RepoRoot "config\standard-reference.json"
+        if (Test-Path $refPath) {
+            $refStandard = Get-Content $refPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $texteStandard  = "$($refStandard.standardNom) v$($refStandard.standardVersion) ($($refStandard.standardDate))"
+            $texteTemplate  = "$($refStandard.templateNom) v$($refStandard.templateVersion) (Regle $($refStandard.regleDocumentation))"
+            $contenu = $contenu.Replace('<STANDARD_VERSION>', $texteStandard).Replace('<TEMPLATE_INFO>', $texteTemplate)
+        } else {
+            Write-Host "      (config\standard-reference.json introuvable -- balises <STANDARD_VERSION>/<TEMPLATE_INFO> non remplacees.)" -ForegroundColor DarkYellow
+        }
 
         try {
             Set-Clipboard -Value $contenu
@@ -1302,9 +1317,32 @@ if (-not $SkipDmv -and $port) {
             try {
                 $out = Invoke-AsQuery $asCtx $dmvs[$k]
                 if ($k -eq 'DMV_Dependances.csv') { $calcDep = $out }
+                if ($k -eq 'DMV_Tables_NbLignes.csv') { $storageTables = $out }
                 Save $k $out | Out-Null
             } catch {
                 Write-Host ("   KO  {0,-36} {1}" -f $k, $_.Exception.Message) -ForegroundColor DarkYellow
+            }
+        }
+
+        # --- Volumetrie_Propre.csv : DISCOVER_STORAGE_TABLES melange les
+        # lignes utilisateur avec les lignes internes VertiPaq (segments H$,
+        # relations R$, mappages U$) sous la meme colonne ROWS_COUNT. Filtrer
+        # et trier ici evite de confier ce tri au prompt IA (source d'erreur
+        # d'inventaire documentee dans le prompt 3a).
+        if ($storageTables) {
+            try {
+                $cleanVol = @($storageTables | Where-Object {
+                    $tid = [string](P $_ 'TABLE_ID' '')
+                    $tid -and $tid -notmatch '^[HRU]\$'
+                } | ForEach-Object {
+                    [pscustomobject]@{
+                        Table        = P $_ 'TABLE_ID' ''
+                        NombreLignes = [int64](P $_ 'ROWS_COUNT' 0)
+                    }
+                } | Sort-Object -Property NombreLignes -Descending)
+                Save "Volumetrie_Propre.csv" $cleanVol | Out-Null
+            } catch {
+                Write-Host "   (Volumetrie_Propre.csv non produit : $($_.Exception.Message))" -ForegroundColor DarkYellow
             }
         }
         Close-AsContext $asCtx
@@ -1941,5 +1979,5 @@ if (-not $SansMenu) {
     Write-Host $resume.ToString()
     $repoRootPrompts = Split-Path $PSScriptRoot -Parent
     $promptsDisponibles = Get-PromptsDisponibles $repoRootPrompts
-    Show-MenuPrompts $promptsDisponibles $OutputFolder
+    Show-MenuPrompts $promptsDisponibles $OutputFolder $repoRootPrompts
 }

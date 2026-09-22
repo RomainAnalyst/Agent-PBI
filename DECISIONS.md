@@ -551,3 +551,119 @@ pas de virgule décimale) sous culture fr-FR. Rendu visuel du SVG contrôlé dan
 Edge (fixture et modèle synthétique de 30 tables). Run réel sur un modèle Power
 BI ouvert : `NON TESTÉ`. Regex de détection d'après la forme habituelle du M,
 non confrontées à des expressions réelles de l'entreprise.
+
+---
+
+## 018 — Référence au standard lue depuis un fichier local, plutôt que cherchée sur SharePoint par l'IA
+
+**Décision.** Le prompt 3 (`docs/prompts/03-documentation-technique.md`) ne
+demande plus à l'IA de chercher le standard de développement Power BI sur
+SharePoint (ancienne « Étape 0 »). `config/standard-reference.json` porte
+le nom, la version et la date du standard, ainsi que le nom, la version et
+la règle du template associé. `Show-MenuPrompts` lit ce fichier et remplace
+les balises `<STANDARD_VERSION>` et `<TEMPLATE_INFO>` du prompt copié dans
+le presse-papier avant de l'y déposer. Une règle « Périmètre fermé » a été
+ajoutée en tête des règles propres au prompt 3 pour interdire explicitement
+toute recherche SharePoint ou en ligne. **Reste à trancher** : si
+`config/standard-reference.json` doit être versionné (référence commune à
+l'équipe) ou ignoré par Git (chaque poste adapte sa propre copie) — le fichier
+n'est pour l'instant ni l'un ni l'autre, simplement non suivi.
+
+**Motif.** Laisser Copilot/Claude chercher le standard sur SharePoint à
+chaque génération donnait un résultat non déterministe (le fichier trouvé,
+sa version retenue et parfois la simple présence du résultat variaient d'un
+essai à l'autre) et une dépendance réseau/droits d'accès à SharePoint que
+rien n'imposait ici : la référence (nom, version, date) est une donnée
+stable qui change rarement et qu'un `Copy-Item`/une modification manuelle du
+JSON suffit à tenir à jour.
+
+**Alternative écartée.** Garder la recherche SharePoint par l'IA en
+demandant seulement plus de rigueur dans le prompt (« ouvre le document en
+entier », etc.) : n'élimine pas la variabilité intrinsèque d'une recherche
+interprétée par un LLM, contrairement à une lecture de fichier déterministe.
+
+**Statut.** `TESTÉ SUR FIXTURE` : `Get-PromptsDisponibles` et
+`Show-MenuPrompts` extraites et exécutées isolément (Read-Host/Set-Clipboard
+simulés) contre les vrais fichiers du dépôt (`docs/prompts/03-documentation-technique.md`,
+`config/standard-reference.json`) — les balises sont remplacées par le
+contenu attendu du JSON et aucune balise ne subsiste dans le texte copié.
+`.\tests\Invoke-Tests.ps1` repasse après ce changement. Non exécuté via le
+script principal de bout en bout (menu interactif) : à confirmer lors d'un
+run réel.
+
+---
+
+## 019 — Volumetrie_Propre.csv produit par le script, plutôt que le filtrage des lignes VertiPaq confié au prompt
+
+**Décision.** Après la boucle d'extraction des DMV (étape 3), le script filtre
+la sortie déjà récupérée de `DISCOVER_STORAGE_TABLES` (variable `$storageTables`,
+capturée dans la boucle comme `$calcDep` pour `DMV_Dependances.csv` — pas de
+requête DMV supplémentaire) pour ne garder que les lignes utilisateur (`TABLE_ID`
+ne commence pas par `H$`, `R$` ou `U$`), projette `Table`/`NombreLignes` et trie
+par nombre de lignes décroissant, avant d'écrire `Volumetrie_Propre.csv`. Le
+prompt 3 (section 1.3 Volumétrie) recopie désormais ce fichier tel quel, sans
+consigne de filtrage ni de tri.
+
+**Motif.** `DISCOVER_STORAGE_TABLES` mélange sous la même colonne `ROWS_COUNT`
+les lignes de table réelles et des lignes internes VertiPaq (segments,
+relations, mappages) dont le préfixe de `TABLE_ID` seul permet de les
+distinguer. Confier ce filtrage au prompt (comme auparavant) demandait à l'IA
+d'appliquer une règle regex sur des centaines de lignes techniques à chaque
+génération : risque de mauvaise ligne retenue (max/somme au lieu de la bonne
+ligne) plutôt qu'une erreur de calcul déterministe une fois pour toutes en
+PowerShell.
+
+**Statut.** `TESTÉ SUR FIXTURE` (au sens strict : donnée synthétique, pas un
+fichier DMV capturé) : la logique de filtre/projection/tri a été extraite et
+exécutée isolément sur un jeu de lignes construit à la main reproduisant le
+mélange décrit (3 tables utilisateur, une table à 0 ligne, une ligne `H$...`,
+une ligne `R$...`, une ligne `U$...`, un `TABLE_ID` nul) : le CSV produit ne
+contient que les 4 lignes utilisateur, triées par nombre de lignes décroissant,
+identique à l'exemple attendu. `.\tests\Invoke-Tests.ps1` repasse (fixtures en
+`-SkipDmv`, ce chemin n'y est pas exercé). **Non testé** : run réel avec Power
+BI ouvert et DMV disponibles — aucun poste avec une vraie connexion Analysis
+Services n'était accessible pour cette session.
+
+---
+
+## 020 — Prompt 3 scindé en 3a (synthèse) et 3b (fiches tables), au lieu d'un MODE à choisir
+
+**Décision.** `docs/prompts/03-documentation-technique.md` (une ligne `MODE =
+SYNTHÈSE` ou `MODE = TABLES : <liste>` à éditer avant envoi) est supprimé et
+remplacé par deux fichiers :
+- `docs/prompts/03a-documentation-synthese.md` : vue d'ensemble du modèle
+  (sections 1, 2, 3.1, 4, 5, 6 et Annexes A/B du template) ;
+- `docs/prompts/03b-documentation-tables.md` : fiche détaillée par lot de 5 à
+  8 tables (section 3.x), avec une ligne `TABLES = <liste>` à la place de
+  l'ancienne ligne `MODE`.
+
+`Get-PromptsDisponibles` extrayait jusqu'ici le numéro du prompt depuis le nom
+de fichier avec `-replace '^0*(\d+).*', '$1'` puis un cast `[int]` : les deux
+nouveaux fichiers (`03a-...`, `03b-...`) auraient tous les deux produit le
+numéro entier 3, rendant les deux prompts indiscernables dans le menu (`$p`
+serait devenu un tableau de deux éléments dans `Show-MenuPrompts`, faisant
+échouer `$p.ReglesCommunes.Trim()`). Le cast `[int]` est retiré et la regex
+autorise une lettre finale (`'^0*(\d+[a-zA-Z]?).*'`), donnant les identifiants
+texte `3a`/`3b`, distincts et sélectionnables séparément (comparaison déjà en
+chaîne dans `Show-MenuPrompts`, donc aucun autre changement requis). Le même
+ajustement s'applique au titre affiché en console (`-replace '^\d+\.\s*',
+''` devient `-replace '^\d+[a-zA-Z]?\.\s*', ''`), sans effet sur les prompts
+numérotés simplement (1 à 13).
+
+**Motif.** Avec un seul fichier, Copilot devait interpréter la ligne `MODE`
+et pouvait s'en écarter (halluciner un mode, mélanger synthèse et détail par
+table dans la même réponse). Deux fichiers séparés donnent une intention
+unique par prompt, éliminant cette ambiguïté ; c'est aussi l'occasion
+d'appliquer aux deux fichiers les correctifs des décisions #018
+(`<STANDARD_VERSION>`/`<TEMPLATE_INFO>`, plus de recherche SharePoint) et #019
+(`Volumetrie_Propre.csv`) déjà faits sur l'ancien fichier unique.
+
+**Statut.** `TESTÉ SUR FIXTURE` : `Get-PromptsDisponibles`/`Show-MenuPrompts`
+extraites et exécutées isolément (Read-Host simulé pour enchaîner le choix de
+3a puis de 3b, Set-Clipboard capturé) contre les vrais fichiers du dépôt —
+les deux prompts apparaissent comme deux entrées distinctes du menu (`3a`,
+`3b`, ni collision ni tableau), chacun copié séparément dans le presse-papier
+avec le contenu attendu (balises `<STANDARD_VERSION>`/`<TEMPLATE_INFO>`
+substituées dans 3a, absentes par construction de 3b, aucune balise
+résiduelle dans les deux cas). `.\tests\Invoke-Tests.ps1` repasse. Non testé
+via le menu réel du script principal ni avec un document Word réel.
