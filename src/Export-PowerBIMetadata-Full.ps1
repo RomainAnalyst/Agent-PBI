@@ -1318,7 +1318,7 @@ if (-not $SkipDmv -and $port) {
         $dmvs = [ordered]@{
             'DMV_Dependances.csv'           = 'SELECT * FROM $SYSTEM.DISCOVER_CALC_DEPENDENCY'
             'DMV_Tables_NbLignes.csv'       = 'SELECT * FROM $SYSTEM.DISCOVER_STORAGE_TABLES'
-            'DMV_Colonnes_Cardinalite.csv'  = 'SELECT * FROM $SYSTEM.DISCOVER_STORAGE_TABLE_COLUMNS'
+            'DMV_Colonnes_Cardinalite.csv' = 'SELECT TABLE_ID, COLUMN_ID, DICTIONARY_COUNT AS Cardinalite, DICTIONARY_SIZE, ISUNIQUE, ISKEY FROM $SYSTEM.DISCOVER_STORAGE_TABLE_COLUMNS'
             'DMV_Colonnes_Memoire.csv'      = 'SELECT * FROM $SYSTEM.DISCOVER_STORAGE_TABLE_COLUMN_SEGMENTS'
         }
         foreach ($k in $dmvs.Keys) {
