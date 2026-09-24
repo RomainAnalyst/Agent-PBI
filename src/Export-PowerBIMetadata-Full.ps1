@@ -1308,6 +1308,33 @@ $txt = [regex]::Replace($txt, '(?<!\\)\\u(?<c>[0-9a-fA-F]{4})', { param($m) [cha
 [System.IO.File]::WriteAllText($jsonOut, $txt, (New-Object System.Text.UTF8Encoding($false)))
 Write-Host ("   OK  {0,-36} {1,5:N0} Ko" -f "$ReportName.model.json", ((Get-Item $jsonOut).Length / 1KB)) -ForegroundColor DarkGray
 
+# Cardinalite par colonne. DISCOVER_STORAGE_TABLE_COLUMNS n'expose aucun
+# nombre de valeurs distinctes (pas de DICTIONARY_COUNT, verifie sur Power BI
+# Desktop) : la cardinalite est Statistics_DistinctStates de
+# TMSCHEMA_COLUMN_STORAGES. Les DMV n'acceptant pas de JOIN, le rattachement
+# stockage -> colonne -> table se fait ici. Les colonnes RowNumber (Type 3),
+# internes a VertiPaq, sont exclues.
+function Get-CardinaliteColonnes { param($Stockages, $Colonnes, $Tables)
+    $nomTable = @{}
+    foreach ($t in $Tables) { $nomTable[[string](P $t 'ID' '')] = P $t 'Name' '' }
+    $colParId = @{}
+    foreach ($c in $Colonnes) { $colParId[[string](P $c 'ID' '')] = $c }
+    $res = foreach ($s in $Stockages) {
+        $c = $colParId[[string](P $s 'ColumnID' '')]
+        if (-not $c -or [int](P $c 'Type' 1) -eq 3) { continue }
+        $nom = P $c 'ExplicitName' ''
+        if (-not $nom) { $nom = P $c 'InferredName' '' }
+        [pscustomobject]@{
+            Table        = $nomTable[[string](P $c 'TableID' '')]
+            Colonne      = $nom
+            Cardinalite  = [int64](P $s 'Statistics_DistinctStates' 0)
+            NombreLignes = [int64](P $s 'Statistics_RowCount' 0)
+            ContientVide = P $s 'Statistics_HasNulls' ''
+        }
+    }
+    return @($res | Sort-Object -Property @{ Expression = 'Cardinalite'; Descending = $true }, Table, Colonne)
+}
+
 # ==================================================================
 # ETAPE 3 : DMV (dependances + statistiques VertiPaq)
 # ==================================================================
@@ -1318,7 +1345,6 @@ if (-not $SkipDmv -and $port) {
         $dmvs = [ordered]@{
             'DMV_Dependances.csv'           = 'SELECT * FROM $SYSTEM.DISCOVER_CALC_DEPENDENCY'
             'DMV_Tables_NbLignes.csv'       = 'SELECT * FROM $SYSTEM.DISCOVER_STORAGE_TABLES'
-            'DMV_Colonnes_Cardinalite.csv' = 'SELECT TABLE_ID, COLUMN_ID, DICTIONARY_COUNT AS Cardinalite, DICTIONARY_SIZE, ISUNIQUE, ISKEY FROM $SYSTEM.DISCOVER_STORAGE_TABLE_COLUMNS'
             'DMV_Colonnes_Memoire.csv'      = 'SELECT * FROM $SYSTEM.DISCOVER_STORAGE_TABLE_COLUMN_SEGMENTS'
         }
         foreach ($k in $dmvs.Keys) {
@@ -1330,6 +1356,16 @@ if (-not $SkipDmv -and $port) {
             } catch {
                 Write-Host ("   KO  {0,-36} {1}" -f $k, $_.Exception.Message) -ForegroundColor DarkYellow
             }
+        }
+
+        try {
+            $card = Get-CardinaliteColonnes `
+                (Invoke-AsQuery $asCtx 'SELECT [ColumnID], [Statistics_DistinctStates], [Statistics_RowCount], [Statistics_HasNulls] FROM $SYSTEM.TMSCHEMA_COLUMN_STORAGES') `
+                (Invoke-AsQuery $asCtx 'SELECT [ID], [TableID], [ExplicitName], [InferredName], [Type] FROM $SYSTEM.TMSCHEMA_COLUMNS') `
+                (Invoke-AsQuery $asCtx 'SELECT [ID], [Name] FROM $SYSTEM.TMSCHEMA_TABLES')
+            Save 'DMV_Colonnes_Cardinalite.csv' $card | Out-Null
+        } catch {
+            Write-Host ("   KO  {0,-36} {1}" -f 'DMV_Colonnes_Cardinalite.csv', $_.Exception.Message) -ForegroundColor DarkYellow
         }
 
         # --- Volumetrie_Propre.csv : DISCOVER_STORAGE_TABLES melange les

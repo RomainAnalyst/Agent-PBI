@@ -794,3 +794,31 @@ ouvert (`localhost:<port>`, modèle de 34 tables, `.bim` de 2,4 Mo) — Tabular
 Editor 2.29.0 génère le `.bim` et les 25 fichiers sont produits. Seul échec,
 sans lien avec Tabular Editor : la requête DMV `DMV_Colonnes_Cardinalite`
 (ADOMD) introduite par le commit 0b56a20.
+
+---
+
+## 024 — Cardinalité des colonnes lue dans `TMSCHEMA_COLUMN_STORAGES`
+
+**Décision.** `DMV_Colonnes_Cardinalite.csv` n'est plus une copie brute de
+`$SYSTEM.DISCOVER_STORAGE_TABLE_COLUMNS`. Il est construit par
+`Get-CardinaliteColonnes` à partir de trois DMV : `TMSCHEMA_COLUMN_STORAGES`
+(cardinalité = `Statistics_DistinctStates`, plus `Statistics_RowCount` et
+`Statistics_HasNulls`), `TMSCHEMA_COLUMNS` et `TMSCHEMA_TABLES`, joints en
+PowerShell. Le fichier compte une ligne par colonne du modèle :
+`Table ; Colonne ; Cardinalite ; NombreLignes ; ContientVide`, trié par
+cardinalité décroissante. Les colonnes `RowNumber` (Type 3) sont exclues.
+
+**Motif.** Le commit 0b56a20 interrogeait `DICTIONARY_COUNT`, une colonne
+qui n'existe pas dans `DISCOVER_STORAGE_TABLE_COLUMNS` : l'export échouait
+(« colonne introuvable, ligne 1, colonne 29 »). Les 21 colonnes réellement
+exposées par cette DMV (listées sur Power BI Desktop) ne contiennent aucune
+cardinalité. Auparavant, le `SELECT *` ne produisait que 1 595 lignes de
+stockage internes (segments `H$`, identifiants techniques), sans cardinalité.
+Les prompts 1 et 7 devaient donc deviner une colonne qui n'existait pas.
+Les DMV n'acceptent pas de `JOIN`, d'où le rattachement en PowerShell.
+
+**Statut.** `VÉRIFIÉ` : export réel sur Power BI Desktop (modèle de 34
+tables) → 518 lignes, autant que dans `02_Colonnes.csv`, sans aucune ligne
+sans table ni sans nom de colonne. `.\tests\Invoke-Tests.ps1` repasse (les
+fixtures sautent les DMV). `NON TESTÉ` : Power BI Desktop for Report Server,
+et le repli ADODB/MSOLAP.
