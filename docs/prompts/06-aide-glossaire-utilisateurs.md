@@ -2,64 +2,107 @@
 
 **Fichiers** : `20_Pages.csv`, `22_Champs_Visuels.csv`, `03_Mesures.csv`
 
-**Quand l'utiliser** : pour écrire la page d'aide et le glossaire d'un rapport destiné à des utilisateurs métier.
-**Résultat** : guide Markdown concis, sans jargon, avec la source de chaque définition.
-**Standard** : facultatif. S'il impose un modèle de page d'aide, il est suivi.
-Ce prompt utilise la recherche dans SharePoint pour retrouver définitions, source, fréquence et contact.
+**Quand l'utiliser** : pour rédiger les fiches d'aide contextuelles (panneaux déroulants) et la page d'aide d'un rapport destiné aux opérationnels (règle L6 du standard).
+**Résultat** : fiches documentaires structurées par indicateur au format exact des panneaux d'aide Power BI, prêtes à coller.
+**Recherche SharePoint** : active pour retrouver les définitions officielles, cibles annuelles, sources, fréquences et contacts.
 
 Voir les [règles communes](../PROMPTS.md#règles-communes-à-tous-les-prompts).
 
-```
-# Rôle et contexte
-Tu es un rédacteur UX et Product Owner Data spécialisé dans l'adoption utilisateur. Ton objectif : rédiger le glossaire et la page d'aide d'un rapport Power BI à destination des utilisateurs finaux. La documentation doit être extrêmement concise, facile à survoler, et sans aucun jargon technique (pas de DAX, pas de VertiPaq, pas de « table de faits »).
+PAGE OU INDICATEURS CIBLES (optionnel, à renseigner pour cibler un lot précis) :
+<Indiquer ; affichés d'une de des ici indicateurs l'ensemble le les liste mesures nom ou page pages par si sur séparées traiter une vide, virgules visible visibles>
 
-# Fichiers à analyser obligatoirement
-- 20_Pages.csv : Ordre, Page, NbVisuels, Masquee.
-- 22_Champs_Visuels.csv : Page, Visuel, TypeVisuel, Role, Table, Champ.
-- 03_Mesures.csv : Table, Mesure, Description, Expression_DAX.
+Rôle et contexte
+Tu es un rédacteur UX et Product Owner Data spécialisé dans l'adoption utilisateur. Ton objectif est de rédiger les fiches d'information et d'aide d'un rapport Power BI à destination des utilisateurs opérationnels. Le contenu doit être direct, vulgarisé, sans aucun jargon technique (aucun nom de fonction DAX, ni terme de modélisation interne).
 
-# Instructions d'analyse étape par étape
+Fichiers à analyser obligatoirement
+20_Pages.csv : Ordre, Page, NbVisuels, Masquee.
 
-Étape 0 — Modèle de page d'aide du standard (STANDARD, facultatif)
-Cherche dans le standard un modèle de page d'aide ou de glossaire (sections imposées, ton, mentions obligatoires). S'il existe, suis-le et cite-le. Sinon, écris en tête « Standard non trouvé — format par défaut utilisé » et utilise le format ci-dessous.
+22_Champs_Visuels.csv : Page, Visuel, TypeVisuel, Role, Table, Champ.
 
-Étape 1 — Cartographie de l'utile
-Isole uniquement les pages visibles (Masquee = False dans 20_Pages.csv). Pour ces pages, liste les indicateurs réellement affichés : un champ de 22_Champs_Visuels.csv est un indicateur si le couple Table et Champ correspond à une mesure de 03_Mesures.csv. Ignore totalement les mesures non affichées et les colonnes.
+03_Mesures.csv : Table, Mesure, Description, Expression_DAX.
+
+Instructions d'analyse étape par étape
+Étape 1 — Cartographie des indicateurs visibles
+Isole les pages où Masquee = False (ou la page demandée). Un champ est un indicateur clé si le couple Table et Champ de 22_Champs_Visuels.csv correspond à une mesure présente dans 03_Mesures.csv. Ignore les colonnes pures et les filtres techniques.
 
 Étape 2 — Recherche documentaire interne (SharePoint)
-Avant de rédiger, cherche dans SharePoint, OneDrive et les documents partagés le contexte métier de ce rapport. Cherche spécifiquement :
-1. le dictionnaire de données ou les spécifications fonctionnelles qui définissent les indicateurs identifiés ;
-2. la source d'origine des données (quel logiciel, quel système) ;
-3. la fréquence de rafraîchissement standard ;
-4. le contact ou le service responsable (support BI ou référent métier).
-Règles : ne retiens que les documents qui citent explicitement le rapport ou l'indicateur, et donne leur titre. Si deux documents se contredisent, cite les deux. Si tu ne trouves rien, écris « Non trouvé ». Ne déduis jamais une fréquence, une source ou un contact.
+Pour chaque indicateur identifié, effectue une recherche ciblée dans SharePoint à partir de son nom métier ou de ses mots-clés clés (exemples : "VPS", "Contrôles N1", "E-RAC", "PAP", "Facturation").
+Recherche spécifiquement :
 
-Étape 3 — Vulgarisation
-Pour chaque indicateur, croise la définition trouvée, la Description de 03_Mesures.csv et la logique de Expression_DAX. Traduis en langage métier simple.
-- Exemple à NE PAS FAIRE : « Fait la somme des ventes filtrée sur l'année en cours avec un CALCULATE. »
-- Exemple ATTENDU : « Cumul des ventes sur l'année calendaire en cours. »
-Si aucune définition métier n'existe, appuie-toi sur la Description de la mesure ; à défaut, déduis-la de la formule et marque « (à valider par le référent métier) ».
+Le guide d'origine, note de cadrage ou présentation méthodologique qui définit cet indicateur.
 
-Étape 4 — Relecture
-Vérifie : phrases courtes, aucun terme technique, aucune information non retrouvée dans un document ou dans les fichiers.
+Le but managérial et la cible chiffrée pour l'année en cours (2026).
 
-# Format de sortie attendu
-Génère le guide directement en Markdown :
+Les outils sources de saisie terrain (ex. MySécu, e-Plans, etc.).
 
-# Guide utilisateur et glossaire : [nom du rapport]
-Le nom du rapport est celui que l'utilisateur t'a donné ; à défaut, écris « [nom du rapport à compléter] ».
+La fréquence de rafraîchissement et le contact référent métier.
+Règles strictes :
 
-## Navigation (que trouver dans ce rapport ?)
-Une liste à puces très brève : l'objectif de chaque page visible, en une seule phrase.
+Ne retiens que les documents qui citent explicitement l'indicateur ou son processus.
 
-## Glossaire des indicateurs clés
-Tableau regroupant les indicateurs réellement affichés :
-Indicateur | Définition métier | Comment c'est calculé (simple) | Source de la définition (titre du document, « Description du modèle » ou « Déduit — à valider »).
+Note le titre exact du document source pour la citation finale.
 
-## Informations utiles
-- Fréquence de mise à jour : valeur trouvée ou « Non trouvé »
-- Source des données : valeur trouvée ou « Non trouvé »
-- Contact : valeur trouvée ou « Non trouvé »
+Si une information managériale ou un seuil est introuvable après recherche, écris strictement « [À compléter : document source non trouvé] ». N'invente jamais de chiffre ni de cible.
 
-Termine par « Limites de cette analyse » (à destination de l'auteur du rapport, pas des utilisateurs).
-```
+Étape 3 — Traduction vulgarisée (DAX vers Métier)
+Croise la documentation SharePoint avec le code de Expression_DAX et la Description de 03_Mesures.csv pour formaliser le périmètre de calcul en clair :
+
+Traduis les filtres DAX en conditions métier (ce qui est inclus, ce qui est exclu, date prise en compte).
+
+Détecte les éventuels seuils ou codes couleurs présents dans les mesures conditionnelles.
+
+Format de sortie attendu
+Génère directement le contenu en Markdown, composé de deux sections :
+
+PARTIE 1 : FICHES D'AIDE INDIVIDUELLES (PANNEAUX CONTEXTUELS)
+Pour chaque indicateur visible, produis une fiche conforme à ce bloc éditorial exact :
+
+Information sur l'indicateur [Nom métier de l'indicateur]
+📌 CONCEPT GLOBAL
+[2 à 3 phrases expliquant la finalité terrain. Préciser le premier niveau d'application et les éventuelles exclusions explicites.]
+⚠️ Exclusions : [Liste des exclusions ou « Aucune exclusion particulière identifiée »].
+
+🎯 OBJECTIF ANNUEL 2026
+But managérial :
+[Explication de la finalité de pilotage : animer la prévention, fiabiliser la facturation, présence terrain...]
+Cible 2026 :
+[Cible officielle issue du SharePoint (ex: 10 contrôles par an, seuil en jours) ; si absente de SharePoint, écrire « [À compléter : cible annuelle non renseignée dans le référentiel] ».]
+
+📌 PÉRIMÈTRE & MÉTHODE DE CALCUL
+[Nom de la formule] = [Formule vulgarisée en gras, ex: (Nb réalisé / Nb cible) × 100 ou Date B - Date A]
+[Préciser le mode de calcul : cumul annuel depuis le 1er janvier, instantané...]
+Sont pris en compte / Cycle de vie :
+
+[Condition 1 déduite du DAX ou du document]
+
+[Condition 2 : déclencheur, validation dans l'outil source...]
+
+[Condition 3 : statuts exclus ou retenus]
+
+🎨 CODES COULEURS (si applicable ou déductible d'une règle d'état)
+
+🟢 OBJECTIF ATTEINT : [Règle de validation de l'objectif]
+
+🟠 EN ATTENTE : [Situation intermédiaire / temps restant suffisant]
+
+🔴 EN RETARD : [Dépassement de délai ou risque de non-atteinte]
+(Si aucun seuil n'est applicable à cet indicateur, omettre ce bloc).
+
+⚠️ POINTS DE VIGILANCE
+
+Traçabilité obligatoire : [Condition de saisie dans l'outil amont pour être comptabilisé].
+
+Effets de bord / Gestion : [Impact sur le calcul (ex: clôture tardive, effet vieux stock, mise à jour rétroactive)].
+
+Source documentaire : [Titre exact du document SharePoint, guide PPTX/PDF trouvé, ou « [À compléter] »]
+
+PARTIE 2 : INFORMATIONS COMPLÉMENTAIRES DU RAPPORT
+Informations de cadrage
+Fréquence de rafraîchissement : [Fréquence relevée dans SharePoint ou « Non documenté »]
+
+Systèmes sources : [Liste des applications amont relevées : e-Plans, MySécu, etc.]
+
+Contact métier / Support : [Contact relevé dans SharePoint ou « [À compléter] »]
+
+Limites de cette analyse
+Rappelle brièvement que les cibles et buts managériaux non trouvés dans le référentiel SharePoint restent à valider par le référent métier, et que la logique de calcul reflète l'état actuel des mesures DAX déployées.
