@@ -763,3 +763,34 @@ continuent d'apparaître correctement dans le menu après l'ajout.
 applique effectivement cette clause face à un standard qui désigne une règle
 comme couverte par le BPA — le contenu réel du standard de l'entreprise n'a
 pas été consulté pour cette session.
+
+---
+
+## 023 — Tabular Editor 2 portable passé de 2.28.0 à 2.29.0
+
+**Décision.** Le contenu de `TabularEditor\` est remplacé par celui du zip
+portable 2.29.0 (asset GitHub `TabularEditor.Portable.zip`, SHA256
+`C0D3A7ABDA4572BAAF3AEEDF9CB342CE7AD4D9840E6438D6B13DF02267D308A4`, vérifié
+contre la note de version). Aucun changement de code : l'appel
+`TabularEditor.exe <serveur> <base> -B <fichier>` est inchangé.
+
+**Motif.** La 2.29.0 retire Costura.Fody : les dépendances (TOMWrapper,
+Newtonsoft.Json, Antlr4.Runtime, FastColoredTextBox, WindowsAPICodePack…)
+sont désormais des DLL livrées à côté de l'exécutable au lieu d'être chargées
+depuis des ressources embarquées. Tabular Editor démarre ainsi sur les postes
+où App Control / WDAC « Dynamic Code Security » est actif — un cas plausible
+sur un poste d'entreprise verrouillé. La version embarque aussi TOM
+19.117.0.
+
+**Conséquence.** Le dossier `TabularEditor\` doit contenir **tout** le zip :
+copier le seul `TabularEditor.exe` (1,2 Mo au lieu de 2,4 Mo) ne fonctionne
+plus. Onze DLL s'ajoutent au dossier.
+
+**Statut.** `VÉRIFIÉ` pour le chargement : `TabularEditor.exe` 2.29.0 en CLI
+relit `tests\fixtures\relations-supprimables\Model.bim` et le réécrit via
+`-B` (code retour 0). `.\tests\Invoke-Tests.ps1` repasse (il n'appelle pas
+Tabular Editor). `VÉRIFIÉ` en réel : export complet contre Power BI Desktop
+ouvert (`localhost:<port>`, modèle de 34 tables, `.bim` de 2,4 Mo) — Tabular
+Editor 2.29.0 génère le `.bim` et les 25 fichiers sont produits. Seul échec,
+sans lien avec Tabular Editor : la requête DMV `DMV_Colonnes_Cardinalite`
+(ADOMD) introduite par le commit 0b56a20.

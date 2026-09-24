@@ -21,4 +21,6 @@ git commit -m "Point de départ"
 Tabular Editor 2 (version portable, licence MIT) est versionné dans `TabularEditor\`
 à la racine : aucun téléchargement ni extraction requis, le script le trouve
 automatiquement. Pour le mettre à jour, remplacer le contenu de ce dossier par
-celui d'un nouveau `TabularEditor.2.x.x.zip`.
+celui d'un nouveau zip portable (asset `TabularEditor.Portable.zip` de la release
+GitHub), en copiant **tous** ses fichiers : depuis la 2.29, l'exécutable seul ne
+démarre plus sans ses DLL. Version actuelle : 2.29.0.
