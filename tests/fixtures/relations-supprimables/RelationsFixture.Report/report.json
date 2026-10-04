@@ -1,0 +1,21 @@
+{
+    "sections":  [
+                     {
+                         "name":  "Section1",
+                         "displayName":  "Page 1",
+                         "ordinal":  0,
+                         "width":  1280,
+                         "height":  720,
+                         "visualContainers":  [
+                                                  {
+                                                      "x":  0,
+                                                      "y":  0,
+                                                      "z":  0,
+                                                      "width":  400,
+                                                      "height":  300,
+                                                      "config":  "{\"name\":\"VisTable1\",\"singleVisual\":{\"visualType\":\"tableEx\",\"projections\":{\"Values\":[{\"queryRef\":\"Personnel.Nom\"},{\"queryRef\":\"Absenteisme.NbAbsences\"},{\"queryRef\":\"Calendrier.Date\"},{\"queryRef\":\"Calendrier.MoisNom\"}]}}}"
+                                                  }
+                                              ]
+                     }
+                 ]
+}

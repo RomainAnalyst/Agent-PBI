@@ -1,0 +1,10 @@
+﻿{
+    "nom":  "relations-supprimables",
+    "produit":  "Desktop",
+    "versionPBIDesktop":  "",
+    "capturePar":  "test-synthetique",
+    "dateCapture":  "2026-09-13T17:37:11.5136726+02:00",
+    "sourceBim":  "",
+    "sourcePbix":  "",
+    "note":  "Fixture synthetique (pas de capture reelle) reproduisant le bug : colonnes de relation (Absenteisme[NNI], ICOL[NniCA], Plan_de_Prevention[nni_cp], Personnel[NNI]) classees a tort Supprimable dans 24_Champs_NonUtilises.csv, plus couverture sortByColumn/hierarchie/table de dates (Calendrier)."
+}

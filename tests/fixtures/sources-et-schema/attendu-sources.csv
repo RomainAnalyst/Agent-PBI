@@ -1,0 +1,12 @@
+Table;Groupe;Nature;Objet;Mode;Chargement
+Ventes;Sources;Fichier Excel;Non disponible;import;Oui
+Produits;;Fichier CSV;Non disponible;import;Oui
+Saisie;;Table saisie dans le modéle;Non disponible;import;Oui
+Calendrier;;Table calculée DAX;Non disponible;import;Oui
+Stock;;Base ODBC;dbo.vw_stock;directQuery;Oui
+Ventes Propres;;Fichier Excel;Non disponible;import;Oui
+Ventes_Finale;;Fichier Excel;Non disponible;import;Oui
+BoucleA;;Autre;Non disponible;import;Oui
+BoucleB;;Autre;Non disponible;import;Oui
+BaseSql;;Base SQL Server;Non disponible;import;Non
+Orpheline;;Autre;Non disponible;import;Oui
